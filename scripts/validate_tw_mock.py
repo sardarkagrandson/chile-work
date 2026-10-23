@@ -36,7 +36,7 @@ for d in dpas:
 fig = plt.figure(figsize=(16, 4.6))
 axes = [fig.add_subplot(1, 4, k) for k in (1, 2, 3, 4)]
 slit_overlay(flux, vel, res, 1.0, p.pixscale, True, axes[:2], xl)
-axes[0].set_title("mock: exp. disc + rigidly rotating Ferrers bar")
+axes[0].set_title("mock: disc + rigid Ferrers bar", fontsize=10)
 tw_diagram(res, axes[2], title=rf"input $\Omega_p$={p.omega_p} km/s/kpc, recovered {res.omega_p:.1f}$\pm${res.omega_p_err:.1f}")
 axes[3].plot(dpas, om, "o-", ms=3)
 axes[3].axhline(p.omega_p, color="C3", ls="--", label="truth")
