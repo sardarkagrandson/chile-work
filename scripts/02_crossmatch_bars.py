@@ -29,6 +29,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--bars", default=str(data_dir("raw") / "desi_legacy_bars_sga.fits"))
 ap.add_argument("--gz", default=str(data_dir("raw") / "gz_desi_deep_learning_catalog_friendly.parquet"))
 ap.add_argument("--bar-ellip-min", type=float, default=0.3)
+ap.add_argument("--bar-above-disc-min", type=float, default=0.1)
 ap.add_argument("--config", default=None)
 args = ap.parse_args()
 cfg = load_config(args.config)
@@ -45,9 +46,18 @@ for col in ["BAR_LENGTH_RAW", "BAR_ELLIP", "SGA_RA", "SGA_DEC"]:
     df[col] = np.where(by_id["SGA_ID"].notna(), by_id[col], df[col])
 df["IN_BAR_CATALOG"] = by_id["SGA_ID"].notna() | df["IN_BAR_CATALOG"]
 df["BAR_MATCH"] = np.where(by_id["SGA_ID"].notna(), "SGA_ID", np.where(df["IN_BAR_CATALOG"], "position", ""))
-df["BARRED_SGA"] = df["IN_BAR_CATALOG"] & (df["BAR_ELLIP"] >= args.bar_ellip_min)
-print(f"  in bar catalogue: {int(df['IN_BAR_CATALOG'].sum())}  "
-      f"(SGA dwarfs in sample: {int(sf['sga_id'].notna().sum())});  bar_ellip >= {args.bar_ellip_min}: {int(df['BARRED_SGA'].sum())}")
+# The catalogue records a bar *measurement* for every entry, not a detection:
+# require the bar to be (i) elongated enough and (ii) more elongated than the
+# inclined disc, otherwise the "bar" fit may just trace the disc isophotes.
+df["BAR_MINUS_DISC_ELLIP"] = df["BAR_ELLIP"] - (1.0 - df["DISC_BA"])
+df["BAR_STRONG_ENOUGH"] = df["IN_BAR_CATALOG"] & (df["BAR_ELLIP"] >= args.bar_ellip_min)
+df["BAR_ABOVE_DISC"] = df["IN_BAR_CATALOG"] & (df["BAR_MINUS_DISC_ELLIP"] >= args.bar_above_disc_min)
+df["BAR_IMPLAUSIBLE"] = df["IN_BAR_CATALOG"] & (df["BAR_ELLIP"] > 0.7)
+df["BARRED_SGA"] = df["BAR_STRONG_ENOUGH"] & df["BAR_ABOVE_DISC"] & ~df["BAR_IMPLAUSIBLE"]
+print(f"  in bar catalogue: {int(df['IN_BAR_CATALOG'].sum())}  (SGA dwarfs in sample: {int(sf['sga_id'].notna().sum())})")
+print(f"  bar_ellip >= {args.bar_ellip_min}: {int(df['BAR_STRONG_ENOUGH'].sum())};  bar more elongated than disc by >= {args.bar_above_disc_min}: "
+      f"{int(df['BAR_ABOVE_DISC'].sum())};  bar_ellip > 0.7 (implausible): {int(df['BAR_IMPLAUSIBLE'].sum())}")
+print(f"  BARRED_SGA (all three): {int(df['BARRED_SGA'].sum())}")
 
 # (b) Galaxy Zoo DESI (optional)
 try:
@@ -83,7 +93,7 @@ df.to_parquet(data_dir("interim") / "02_all_with_bar_flags.parquet")
 
 small = ["TARGETID", "sga_galaxy", "pgc", "RA", "DEC", "Z", "luminosity_distance_mpc", "kpc_per_arcsec",
          "logmstar_h0678", "SFR_Msun_yr", "r_mag_dered", "sma_sb25", "DISC_PA", "DISC_BA", "DISC_PA_SOURCE",
-         "INCL_DEG", "BAR_ELLIP", "BAR_LENGTH_RAW", "BAR_MATCH", "BARRED_GZ", "n_companions", "isolated",
+         "INCL_DEG", "BAR_ELLIP", "BAR_MINUS_DISC_ELLIP", "BAR_LENGTH_RAW", "BAR_MATCH", "BARRED_GZ", "n_companions", "isolated",
          "Z_TIER", "INCL_OK", "PRIORITY"]
 prod = ROOT / "products"; prod.mkdir(exist_ok=True)
 cand[[c for c in small if c in cand]].round(4).to_csv(prod / "barred_dwarf_candidates.csv", index=False)

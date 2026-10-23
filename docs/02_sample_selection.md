@@ -58,13 +58,14 @@ disagreeing is expected and worth quantifying.
 | of which SGA-2020 galaxies (the only ones the bar catalogue can contain) | 797 |
 | in the bar catalogue (SGA_ID join + 3" positional) | 242 |
 | bar_ellipticity >= 0.3 | 131 |
-| + 25 <= i <= 70 deg (SGA or Tractor b/a, q0 = 0.3) | 125 |
-| priority 1: tier A and bar_ellipticity >= 0.4 | 60 |
-| priority 2: tier A, 0.3 <= bar_ellipticity < 0.4 | 25 |
-| priority 3: tier B | 33 |
-| priority 1-2 at Dec < +25 (reachable by MUSE) | 52 |
+| bar more elongated than the inclined disc by >= 0.1 (the catalogue records a measurement for every entry, not a detection) | 77 |
+| both, and bar_ellipticity <= 0.7 (9 implausible values removed) = `BARRED_SGA` | 66 |
+| + 25 <= i <= 70 deg (SGA or Tractor b/a, q0 = 0.3) | 61 |
+| priority 1: tier A and bar_ellipticity >= 0.4 | 34 |
+| priority 2: tier A, 0.3 <= bar_ellipticity < 0.4 | 6 |
+| priority 3: tier B | 16 |
 
-The 131 is a lower bound: 94% of the dwarfs are not SGA galaxies (too small
+The 66 is a lower bound: 94% of the dwarfs are not SGA galaxies (too small
 for the atlas, D25 < 20"), and only GZ DESI (indicator b) can flag bars in
 them. Several very high bar ellipticities (> 0.7) at low inclination are
 suspicious in this regime and must be vetted on the Legacy Surveys images

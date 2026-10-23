@@ -76,8 +76,8 @@ Questions we can answer with ~10-30 dwarfs:
 1. Parent sample = the 14,786 star-forming dwarfs of the DESI DR1 paper
    (BPT star forming in [NII] and [SII], log M*/Msun <= 9.0, z < 0.0333).
 2. Resolution tier A: z < 0.012 (D < ~50 Mpc, a 1 kpc bar spans >= 5 MUSE resolution elements): 1,782 galaxies.
-3. Barred: bar catalogue bar_ellipticity >= 0.3 (131 of the 797 SGA dwarfs) or GZ DESI (featured>=0.27, not edge-on>=0.68, bar_no<0.5; to be run locally).
-4. Inclination 25-70 deg: 125; priority 1-2 (tier A): 85, of which 52 at Dec < +25.
+3. Barred: bar catalogue bar_ellipticity >= 0.3 *and* more elongated than the disc by >= 0.1 *and* <= 0.7 (66 of the 797 SGA dwarfs), or GZ DESI (featured>=0.27, not edge-on>=0.68, bar_no<0.5; to be run locally).
+4. Inclination 25-70 deg: 61; priority 1-2 (tier A, z < 0.012): 40.
 5. MUSE cube (or raw data) within 30" of the centre, t_exp >= 30 min.
 6. TW geometry: 10 < |PA_bar - PA_disc| < 80 deg; undisturbed disc; bar inside the FoV (step 4, Legacy Surveys isophotes).
 
@@ -93,8 +93,8 @@ Questions we can answer with ~10-30 dwarfs:
 
 ## 6. Risks and mitigations
 
-* **Few dwarfs with MUSE data.** 85 priority candidates exist before the
-  archive query; archival MUSE coverage of random nearby dwarfs is a few
+* **Few dwarfs with MUSE data.** 40 priority candidates exist before the
+  archive query (more once GZ DESI adds the non-SGA dwarfs); archival MUSE coverage of random nearby dwarfs is a few
   per cent, so expect a handful to ~10, plus the Virgo dwarfs and the ROSIE galaxy. Mitigation: include raw
   (unreduced/proprietary-expired) MUSE frames; include quiescent barred
   dwarfs as a secondary sample; use the ranked candidate list for a MUSE

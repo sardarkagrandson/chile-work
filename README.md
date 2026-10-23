@@ -49,9 +49,9 @@ python scripts/01_select_desi_sf_dwarfs.py && python scripts/02_crossmatch_bars.
 ## Status (23 Oct 2026)
 
 * Steps 1-2 run: from the paper's 14,786 star-forming dwarfs, 797 are SGA
-  galaxies, 242 are in the bar catalogue, 131 have bar ellipticity >= 0.3,
-  125 have 25-70 deg inclination; 85 are at z < 0.012 (priority 1-2), 52 of
-  them at Dec < +25. List: `products/barred_dwarf_candidates.csv`.
+  galaxies, 242 are in the bar catalogue, 131 have bar ellipticity >= 0.3, 66 also
+  have a bar more elongated than the disc (and <= 0.7), 61 have 25-70 deg
+  inclination; 40 are at z < 0.012 (priority 1-2). List: `products/barred_dwarf_candidates.csv`.
 * Package `bartw/` written and unit-tested; TW code recovers the input
   pattern speed of synthetic barred discs to < 2% (noiseless) and shows the
   expected PA-dominated error budget.
