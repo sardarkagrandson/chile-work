@@ -5,6 +5,7 @@ catalogues into `data/raw/`. Approximate sizes in brackets.
 
 | dataset | where | what we use |
 |---|---|---|
+| Paper sample `DESI_dwarfs.csv` [68 MB, 14,786 x 318] | from Robin (not public until the paper is out); copy to `data/raw/DESI_dwarfs_paper_sample.csv` | everything step 1 needs; see `bartw/paper_sample.py` for the columns used |
 | DESI DR1 FastSpecFit Iron VAC, `fastspec-iron-main-bright.fits` [~3 GB] | https://data.desi.lbl.gov/public/dr1/vac/dr1/fastspecfit/iron/ (check version dir, v3.0 expected); docs https://fastspecfit.readthedocs.io | TARGETID, RA, DEC, Z, ZWARN, DELTACHI2, SPECTYPE, LOGMSTAR, SFR, line fluxes/ivars, HALPHA_EW, VDISP. In v3 the stellar-population columns are in the SPECPHOT HDU; the loader handles both layouts |
 | Galaxy Zoo DESI, `gz_desi_deep_learning_catalog_friendly.parquet` [~2 GB] | https://zenodo.org/records/8360385 | dr8_id, ra, dec, vote fractions for featured, edge-on, bar_strong/weak/no, spiral, merging |
 | Siena Galaxy Atlas 2020, `SGA-2020.fits` [~1 GB] | https://portal.nersc.gov/project/cosmo/data/sga/2020/ | SGA_ID, PA, BA, D26, LEDA quantities |
@@ -16,7 +17,7 @@ catalogues into `data/raw/`. Approximate sizes in brackets.
 
 Notes
 * The cloud session used to set up this repo had no network access to these
-  hosts, so steps 1-4 have not yet been run on real data; run them locally
+  hosts, so GZ DESI (step 2b), the ESO query (3) and the cutouts (4) have not yet been run; run them locally
   (a laptop is enough; step 1 needs ~8 GB RAM to read the BGS file, or use
   `columns=` in `read_fastspec` to reduce it).
 * Column names in `bartw/muse.py` follow the ESO TAP documentation; verify

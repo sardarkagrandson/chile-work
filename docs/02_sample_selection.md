@@ -3,21 +3,28 @@
 Every threshold is in `config/selection.yaml`; the funnel counts are written
 to `data/interim/01_steps.json` by step 1 and printed by steps 2-4.
 
-## Step 1 -- star-forming dwarfs in DESI DR1 (`bartw/desi.py`)
+## Step 1 -- star-forming dwarfs in DESI DR1
 
-Source: FastSpecFit "Iron" VAC, `fastspec-iron-main-bright.fits` (BGS).
+**Default: the sample of Thomas et al. (DESI DR1 dwarf paper), `DESI_dwarfs.csv`.**
+14,786 galaxies; DESI DR1 main + SV + special programmes; star forming on
+both the [NII] and [SII] BPT diagrams with S/N > 3 in all six lines;
+log M*/Msun <= 9.0 (FastSpecFit, h = 0.678); z < 0.0333; one spectrum per
+galaxy. The table already carries Tractor shapes (b/a, PA), SGA-2020
+geometry for its 797 SGA members, physical scale, SFR, metallicity and
+environment (n_companions, nearest neighbour, tidal parameter Q, isolation
+flag), so steps 2-4 and the interpretation (R vs environment) use the same
+quantities as the paper. `scripts/01_select_desi_sf_dwarfs.py` only adds a
+spatial-resolution tier:
 
-| cut | value | why |
-|-----|-------|-----|
-| SURVEY/PROGRAM | main / bright | BGS is the only DESI programme that targets r < 19.5 galaxies; dwarfs at z < 0.05 are BGS Bright (and some BGS Faint) targets |
-| ZWARN, DELTACHI2, SPECTYPE | 0, > 40, GALAXY | DESI DR1 "good redshift" definition for BGS |
-| redshift | 0.002 < z < 0.012 | D <~ 50 Mpc (scale <= 0.25 kpc/arcsec). Dwarf bars are ~0.5-2 kpc (Cuomo+2024: 1.0-2.1 kpc); TW needs several slits across the bar at >= PSF spacing, so a 1 kpc bar must subtend >= 4-5". A "reach" sample to z = 0.02 is one config change. Lower limit removes objects whose redshift distances are meaningless; for all targets we later use redshift-independent distances (Cosmicflows-4) where available |
-| stellar mass | 7.5 <= log M*/Msun <= 9.5 | FastSpecFit LOGMSTAR (Chabrier, h=1) + 0.31 for H0=70. 9.5 is the conventional "dwarf" ceiling and matches the LMC-mass regime; the three Virgo dwarfs with TW are at ~1e9 Msun. Below 10^7.5 bars are not expected/detectable |
-| star forming | BPT (Kauffmann+03, S/N > 3 in 4 lines) or WHAN SF; log sSFR > -11 | matches Robin's DESI dwarf paper; removes AGN/LINER contamination of the Halpha kinematics; the WHAN fallback keeps low-surface-brightness dwarfs whose Hbeta or [OIII] fall below S/N 3 |
-| unique object | highest DELTACHI2 per TARGETID | repeat observations |
+| tier | cut | N | why |
+|------|-----|---|-----|
+| A | z < 0.012 (D <~ 50 Mpc, <= 0.25 kpc/") | 1,782 | a 1 kpc bar subtends >= 4-5" = >= 5 MUSE resolution elements; required for TW |
+| B | 0.012 <= z < 0.02 | 3,235 | usable for the longest bars only |
+| C | z >= 0.02 | 9,769 | not resolvable; kept for statistics (bar fraction vs mass/environment) |
 
-Expected size: a few thousand galaxies (DR1 BGS has ~6.7 M galaxies; the
-z < 0.012 dwarf tail is ~0.1%).
+The FastSpecFit route (`--from-fastspecfit`, cuts in `config/selection.yaml`)
+is kept to extend the parent sample later, e.g. to 9.0 < log M* < 9.5 or to
+quiescent dwarfs, with the same quality / BPT / WHAN logic.
 
 ## Step 2 -- barred (`bartw/bar_catalog.py`, `bartw/morphology.py`)
 
@@ -42,6 +49,26 @@ for small, low-surface-brightness objects, i.e. our dwarfs; (a) and (b)
 disagreeing is expected and worth quantifying.
 
 `BARRED = BARRED_SGA or BARRED_GZ`; the "both" subset is the gold sample.
+
+**Result with indicator (a) alone (23 Oct 2026, `products/barred_dwarf_candidates.csv`):**
+
+| step | N |
+|------|---|
+| star-forming dwarfs | 14,786 |
+| of which SGA-2020 galaxies (the only ones the bar catalogue can contain) | 797 |
+| in the bar catalogue (SGA_ID join + 3" positional) | 242 |
+| bar_ellipticity >= 0.3 | 131 |
+| + 25 <= i <= 70 deg (SGA or Tractor b/a, q0 = 0.3) | 125 |
+| priority 1: tier A and bar_ellipticity >= 0.4 | 60 |
+| priority 2: tier A, 0.3 <= bar_ellipticity < 0.4 | 25 |
+| priority 3: tier B | 33 |
+| priority 1-2 at Dec < +25 (reachable by MUSE) | 52 |
+
+The 131 is a lower bound: 94% of the dwarfs are not SGA galaxies (too small
+for the atlas, D25 < 20"), and only GZ DESI (indicator b) can flag bars in
+them. Several very high bar ellipticities (> 0.7) at low inclination are
+suspicious in this regime and must be vetted on the Legacy Surveys images
+in step 4 before any telescope time is spent on them.
 
 ## Step 3 -- MUSE coverage (`bartw/muse.py`)
 

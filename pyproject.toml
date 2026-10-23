@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 authors = [{ name = "Robin Thomas" }, { name = "Virginia Cuomo" }]
 dependencies = [
   "numpy>=1.26", "scipy>=1.11", "astropy>=6.0", "astroquery>=0.4.7",
-  "pyvo>=1.5", "photutils>=1.12", "matplotlib>=3.8", "pandas>=2.1", "pyyaml>=6.0",
+  "pyvo>=1.5", "photutils>=1.12", "matplotlib>=3.8", "pandas>=2.1", "pyyaml>=6.0", "pyarrow>=15.0",
 ]
 
 [project.optional-dependencies]

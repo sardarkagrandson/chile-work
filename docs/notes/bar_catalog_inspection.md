@@ -47,3 +47,22 @@ Most SGA galaxies with r_SB25 > 17 at z < 0.012 are dwarfs, so a few thousand
 barred-dwarf candidates exist in the imaging; the DESI spectroscopy (BGS
 Bright, r < 19.5) covers most of them. The MUSE cross-match will be the
 limiting step (expect tens, not hundreds).
+
+## Cross-match with the paper's star-forming dwarf sample (23 Oct 2026)
+
+* 797 of the 14,786 dwarfs are SGA-2020 galaxies; 242 of those are in the
+  bar catalogue (SGA_ID join; a 3" positional match finds the same objects
+  plus one), i.e. the catalogue flags ~30% of SGA dwarfs as barred, a
+  plausible dwarf bar fraction.
+* Among the 242 matched dwarfs `bar_length` shows **no correlation** with
+  R25 in arcsec (r = 0.00), with R25 in kpc (r = 0.08) or with distance
+  (r = 0.05), and bar_length/R25 spans 0.3-3.6 if read in arcmin. For
+  dwarfs the column therefore looks like noise or a quantity unrelated to
+  the bar extent; it is not used anywhere in the pipeline.
+* `bar_ellipticity` for the matched dwarfs: median 0.33 (16-84%: 0.16-0.55),
+  with a tail to 0.9. Values > 0.7 in galaxies with i < 40 deg are not
+  physical bars (an aligned companion, an edge-on background object or a
+  failed fit) and need visual vetting.
+* The Tractor shape convention was verified against SGA on 601 dwarfs:
+  PA = 0.5 atan2(e2, e1) (north through east), median |dPA| = 1.5 deg;
+  b/a = (1-e)/(1+e) agrees to 0.05.

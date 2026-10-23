@@ -73,13 +73,13 @@ Questions we can answer with ~10-30 dwarfs:
 
 ## 4. Selection summary (details and justification in `docs/02_sample_selection.md`)
 
-1. DESI DR1, survey=main, program=bright, ZWARN=0, DELTACHI2>40, SPECTYPE=GALAXY.
-2. 0.002 < z < 0.012 (D < ~50 Mpc so that a 1 kpc bar spans >= 5 MUSE resolution elements).
-3. 7.5 <= log M*/Msun <= 9.5 (FastSpecFit, converted to h=0.7).
-4. Star forming: [NII]-BPT below Kauffmann+03 (S/N>3 in 4 lines) or WHAN SF; log sSFR > -11.
-5. Barred: bar catalogue bar_ellipticity >= 0.3 or GZ DESI (featured>=0.27, not edge-on>=0.68, bar_no<0.5).
-6. MUSE cube (or raw data) within 30" of the centre, t_exp >= 30 min.
-7. TW geometry: 25 < i < 70 deg; 10 < |PA_bar - PA_disc| < 80 deg; undisturbed disc; bar inside the FoV.
+1. Parent sample = the 14,786 star-forming dwarfs of the DESI DR1 paper
+   (BPT star forming in [NII] and [SII], log M*/Msun <= 9.0, z < 0.0333).
+2. Resolution tier A: z < 0.012 (D < ~50 Mpc, a 1 kpc bar spans >= 5 MUSE resolution elements): 1,782 galaxies.
+3. Barred: bar catalogue bar_ellipticity >= 0.3 (131 of the 797 SGA dwarfs) or GZ DESI (featured>=0.27, not edge-on>=0.68, bar_no<0.5; to be run locally).
+4. Inclination 25-70 deg: 125; priority 1-2 (tier A): 85, of which 52 at Dec < +25.
+5. MUSE cube (or raw data) within 30" of the centre, t_exp >= 30 min.
+6. TW geometry: 10 < |PA_bar - PA_disc| < 80 deg; undisturbed disc; bar inside the FoV (step 4, Legacy Surveys isophotes).
 
 ## 5. Timeline (weekly meetings)
 
@@ -93,7 +93,9 @@ Questions we can answer with ~10-30 dwarfs:
 
 ## 6. Risks and mitigations
 
-* **Few dwarfs with MUSE data.** Expected: tens. Mitigation: include raw
+* **Few dwarfs with MUSE data.** 85 priority candidates exist before the
+  archive query; archival MUSE coverage of random nearby dwarfs is a few
+  per cent, so expect a handful to ~10, plus the Virgo dwarfs and the ROSIE galaxy. Mitigation: include raw
   (unreduced/proprietary-expired) MUSE frames; include quiescent barred
   dwarfs as a secondary sample; use the ranked candidate list for a MUSE
   proposal (P-cycle 2027).

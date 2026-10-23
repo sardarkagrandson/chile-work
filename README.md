@@ -23,8 +23,8 @@ Documents: [project plan](docs/01_project_plan.md) ·
 
 ```
 scripts/download_data.sh                 # FastSpecFit Iron (BGS), GZ DESI, SGA-2020 -> data/raw/
-scripts/01_select_desi_sf_dwarfs.py      # quality + z + mass + BPT/WHAN      -> data/interim/01_sf_dwarfs.parquet
-scripts/02_crossmatch_bars.py            # SGA bar catalogue + GZ DESI bars   -> data/interim/02_barred_candidates.parquet
+scripts/01_select_desi_sf_dwarfs.py      # paper sample (or FastSpecFit cuts) + resolution tier -> data/interim/01_sf_dwarfs.parquet
+scripts/02_crossmatch_bars.py            # SGA bar catalogue + GZ DESI bars, priorities -> products/barred_dwarf_candidates.csv
 scripts/03_query_muse.py                 # ESO TAP: MUSE cubes / raw frames   -> data/products/sample_with_muse.csv
 scripts/04_measure_geometry.py           # LS cutouts: disc PA, i, bar PA, a_bar, TW suitability -> sample_geometry.csv
 scripts/05_stellar_kinematics.py CUBE    # Voronoi + pPXF stellar V maps      -> kin_<name>.fits
@@ -41,18 +41,25 @@ selection funnel so the numbers can go straight into the paper/proposal.
 pip install -e .            # or: pip install -r requirements.txt
 pytest                      # 16 tests: TW recovery on mocks, geometry, DESI selection logic
 python scripts/validate_tw_mock.py      # -> figures/tw_mock_validation.png
-bash scripts/download_data.sh           # ~6 GB; then run scripts 01-04 in order
+cp DESI_dwarfs.csv data/raw/DESI_dwarfs_paper_sample.csv   # paper sample (not in git)
+bash scripts/download_data.sh           # GZ DESI, SGA-2020 (FastSpecFit only for --from-fastspecfit)
+python scripts/01_select_desi_sf_dwarfs.py && python scripts/02_crossmatch_bars.py
 ```
 
 ## Status (23 Oct 2026)
 
+* Steps 1-2 run: from the paper's 14,786 star-forming dwarfs, 797 are SGA
+  galaxies, 242 are in the bar catalogue, 131 have bar ellipticity >= 0.3,
+  125 have 25-70 deg inclination; 85 are at z < 0.012 (priority 1-2), 52 of
+  them at Dec < +25. List: `products/barred_dwarf_candidates.csv`.
 * Package `bartw/` written and unit-tested; TW code recovers the input
   pattern speed of synthetic barred discs to < 2% (noiseless) and shows the
   expected PA-dominated error budget.
 * Bar catalogue (89,780 SGA galaxies) inspected: `bar_length` unit unknown,
   no bar PA; used as a bar flag only until clarified with the authors.
-* Steps 1-4 not yet run on real data: the setup session had no access to the
-  DESI/Zenodo/ESO hosts. Run `scripts/download_data.sh` locally.
+* Steps 2b-4 (Galaxy Zoo DESI bars, ESO archive query, Legacy Surveys
+  geometry) need network access the setup session did not have: run
+  `scripts/download_data.sh`, then scripts 02-04 locally.
 * Open items for Virginia: ROSIE galaxy details; MUSE programmes to prioritise;
   bar catalogue definitions.
 
