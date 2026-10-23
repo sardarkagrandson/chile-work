@@ -1,0 +1,67 @@
+# All sample-selection thresholds live here so the pipeline is reproducible
+# and every number can be changed in one place and re-run.
+# Justification for each cut: docs/02_sample_selection.md
+
+cosmology:
+  H0: 70.0          # km/s/Mpc; FastSpecFit LOGMSTAR assumes h=1, we convert
+  Om0: 0.3
+
+desi:
+  release: dr1
+  fastspecfit_version: v3.0        # Iron VAC shipped with DR1; check docs/05_data_access.md
+  survey: main
+  program: bright                  # BGS: the only DESI programme reaching dwarfs at z<0.05
+  # Redshift quality (Redrock)
+  zwarn_max: 0                     # ZWARN == 0
+  deltachi2_min: 40.0              # BGS "good redshift" threshold (DESI DR1 paper)
+  spectype: GALAXY
+  # Spatial-resolution driven: a 1 kpc bar must span >= ~5 MUSE resolution
+  # elements (seeing ~0.8"), i.e. scale <= ~0.25 kpc/arcsec  ->  D <~ 50 Mpc.
+  z_min: 0.002                     # avoid peculiar-velocity dominated distances
+  z_max: 0.012                     # ~50 Mpc; loosen to 0.02 for a "reach" sample
+  # Dwarf definition (log Mstar/Msun, h=0.7, Chabrier IMF)
+  logmstar_min: 7.5
+  logmstar_max: 9.5
+  # Star-forming classification
+  line_snr_min: 3.0                # S/N for Halpha, Hbeta, [NII], [OIII] in BPT
+  halpha_ew_min: 3.0               # Angstrom; WHAN fallback when Hbeta/[OIII] weak
+  bpt_scheme: kauffmann03          # SF below Kauffmann+03 line on [NII]-BPT
+  log_ssfr_min: -11.0              # yr^-1; sanity floor on specific SFR
+
+galaxy_zoo_desi:
+  # Walmsley+2023 (Zenodo 8360385), gz_desi_deep_learning_catalog_friendly.*
+  match_radius_arcsec: 1.5
+  featured_min: 0.27               # smooth-or-featured_featured-or-disk_fraction
+  not_edge_on_min: 0.68            # 1 - disk-edge-on_yes_fraction
+  bar_no_max: 0.5                  # bar_no_fraction < 0.5  => barred
+  bar_strong_plus_weak_min: 0.5    # equivalent, kept explicit
+  strong_bar_ratio: 0.5            # strong/(strong+weak) > 0.5 => "strong" label
+
+geometry:
+  # Tremaine-Weinberg applicability (Garma-Oehmichen+2022, Geron+2023, Cuomo+2024)
+  q0: 0.3                          # intrinsic thickness; dwarfs are thicker than q0=0.2
+  incl_min_deg: 25.0
+  incl_max_deg: 70.0
+  dpa_min_deg: 10.0                # |PA_bar - PA_disc| must avoid both axes
+  dpa_max_deg: 80.0
+  # photometry used to measure disc PA/ellipticity and bar PA/length
+  cutout_layer: ls-dr9
+  cutout_pixscale_arcsec: 0.262
+  cutout_size_pix: 512
+
+muse:
+  tap_url: https://archive.eso.org/tap_obs
+  instrument: MUSE
+  search_radius_arcmin: 0.5        # MUSE WFM FoV is 1'x1'; centre within 30"
+  min_exptime_s: 1800
+  include_raw: true                # also list raw (unreduced) MUSE observations
+  include_proprietary: true        # keep, but flag obs_release_date in future
+
+tw:
+  n_slits: 9                       # odd -> central slit included
+  slit_width_arcsec: 1.0           # >= PSF FWHM; Voronoi bins must be smaller
+  slit_half_length_factor: 1.5     # slits extend to 1.5 x bar length along X
+  slit_ymax_factor: 0.9            # |Y| <= 0.9 * a_bar*|sin dPA| so slits cross the bar
+  pa_error_deg: 3.0                # dominant error term; MC over disc PA
+  n_mc: 500
+  fast_slow_boundary: 1.4          # R > 1.4 slow, 1.0 <= R <= 1.4 fast, R < 1.0 ultrafast

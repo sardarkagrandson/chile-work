@@ -1,0 +1,20 @@
+# data products are large; keep them out of git
+data/raw/
+data/interim/
+data/products/
+*.fits
+*.fits.gz
+*.hdf5
+*.parquet
+!tests/data/*.fits
+
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.ipynb_checkpoints/
+.venv/
+figures/*.png
+!figures/tw_mock_validation.png
