@@ -35,8 +35,14 @@ rows = []
 for i, r in df.iterrows():
     rec = dict(TARGETID=r["TARGETID"])
     try:
-        r25 = float(r["sma_sb25"]) if np.isfinite(r.get("sma_sb25", np.nan)) and r.get("sma_sb25", 0) > 0 \
-            else float(r["d25_adopted_arcsec"]) / 2 if np.isfinite(r.get("d25_adopted_arcsec", np.nan)) else 15.0
+        cands = [8.0]
+        if np.isfinite(r.get("shape_r", np.nan)) and r.get("shape_r", 0) > 0:
+            cands.append(3.0 * float(r["shape_r"]))
+        if np.isfinite(r.get("sma_sb25", np.nan)) and r.get("sma_sb25", 0) > 0:
+            cands.append(float(r["sma_sb25"]))
+        elif np.isfinite(r.get("d25_adopted_arcsec", np.nan)):
+            cands.append(float(r["d25_adopted_arcsec"]) / 2)
+        r25 = max(cands)
         pix = g["cutout_pixscale_arcsec"]
         img, hdr = fetch_cutout(r["RA"], r["DEC"], g["cutout_layer"], pix, cutout_size_for(r25, pix))
         res = measure_geometry(img, pix, r25)
@@ -52,7 +58,8 @@ geo = pd.DataFrame(rows)
 ok, dpa, why = tw_suitable(geo["INCL_DEG"], geo["PA_BAR"], geo["PA_DISC"], g)
 geo["DPA_DEG"] = dpa
 geo["TW_SUITABLE"] = ok & (geo["PA_DISC_ERR"] <= 5.0)
-geo["TW_REASON"] = np.where(ok & (geo["PA_DISC_ERR"] > 5.0), "disc PA error > 5 deg", why)
+reason = np.where(ok & (geo["PA_DISC_ERR"] > 5.0), "disc PA error > 5 deg", why)
+geo["TW_REASON"] = np.where(geo["GEOM_STATUS"] != "ok", "no bar: " + geo["GEOM_STATUS"].astype(str), reason)
 out = df.merge(geo, on="TARGETID")
 out["KPC_PER_ARCSEC"] = kpc_per_arcsec(z=out["Z"], H0=cfg["cosmology"]["H0"])
 out["A_BAR_KPC"] = out["A_BAR_ARCSEC"] * out["KPC_PER_ARCSEC"]
