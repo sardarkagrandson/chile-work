@@ -71,3 +71,10 @@ def test_rotation_rate_regimes():
     r = rotation_rate(omega_p=30.0, omega_p_err=1.0, vc=80.0, vc_err=2.0, a_bar_kpc=2.3, a_bar_err_kpc=0.05, rng=0)
     assert r["regime"] == "fast"
     assert abs(r["p_fast"] + r["p_slow"] + r["p_ultrafast"] - 1) < 1e-9
+
+
+def test_prograde_flag_on_mock():
+    p = MockParams()
+    res, t = _run(p)
+    assert res.rotation_sign != 0
+    assert res.prograde is True

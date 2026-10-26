@@ -38,6 +38,9 @@ ap.add_argument("--x0", type=float, default=None); ap.add_argument("--y0", type=
 ap.add_argument("--pixscale", type=float, default=0.2)
 ap.add_argument("--vc", type=float, default=None); ap.add_argument("--vc-err", type=float, default=None)
 ap.add_argument("--east-right", action="store_true")
+ap.add_argument("--no-kin-pa", action="store_true", help="use the photometric PA instead of fitting the kinematic PA")
+ap.add_argument("--kin-radius", type=float, default=None, help="radius [arcsec] for the kinematic PA fit (default 2 a_bar)")
+ap.add_argument("--max-verr", type=float, default=None, help="drop spaxels with V error above this [km/s] (default: 4x the median of the bright bins)")
 ap.add_argument("--config", default=None)
 args = ap.parse_args()
 cfg = load_config(args.config)["tw"]
@@ -73,22 +76,46 @@ for a in ("pa", "incl", "bar_pa", "a_bar", "distance"):
 x0 = (nx - 1) / 2 if args.x0 is None else args.x0
 y0 = (ny - 1) / 2 if args.y0 is None else args.y0
 pa_err = cfg["pa_error_deg"] if args.pa_err is None else args.pa_err
+pa_phot, pa_phot_err = args.pa, pa_err
+pa_kin = pa_kin_err = np.nan
+# spaxels with unreliable velocities (failed/unstable fits): keep the mask small and report it
+mask = np.isfinite(flux) & np.isfinite(vel) & (flux > 0)
+if verr is not None:
+    bright = mask & (flux >= np.nanpercentile(flux[mask], 70))
+    vmax = args.max_verr if args.max_verr is not None else 4.0 * np.nanmedian(verr[bright])
+    bad = mask & ~(verr <= vmax)
+    print(f"velocity-error mask: {bad.sum()} of {mask.sum()} spaxels have V error > {vmax:.0f} km/s "
+          f"({100 * bad.sum() / mask.sum():.1f}%) and are excluded")
+    mask &= ~bad
+if not args.no_kin_pa:
+    from bartw.kinpa import fit_kinematic_pa
+    rk = args.kin_radius if args.kin_radius is not None else 2.0 * args.a_bar
+    kp = fit_kinematic_pa(np.where(mask, vel, np.nan), x0, y0, east_left=not args.east_right,
+                          radius_pix=rk / args.pixscale, v_err=verr)
+    pa_kin, pa_kin_err = kp["pa_kin"], max(kp["pa_kin_err"], 1.0)
+    print(f"kinematic PA = {pa_kin:.1f} +/- {pa_kin_err:.1f} deg (within {rk:.0f}\", {kp['n_pix']} spaxels, V_sys {kp['v_sys']:.1f}); "
+          f"photometric PA = {pa_phot:.1f} +/- {pa_phot_err:.1f} deg; difference {pa_difference(pa_kin, pa_phot):.1f} deg; "
+          f"receding side at PA {kp['receding_pa']:.0f}")
+    args.pa, pa_err = pa_kin, pa_kin_err
 dpa = float(pa_difference(args.bar_pa, args.pa))
+print(f"using disc PA {args.pa:.1f} +/- {pa_err:.1f}; bar-disc angle {dpa:.1f} deg")
 yc = default_slit_centers(args.a_bar, dpa, cfg["n_slits"], cfg["slit_width_arcsec"], cfg["slit_ymax_factor"])
 xl = cfg["slit_half_length_factor"] * args.a_bar
 
 res = measure_pattern_speed(flux, vel, args.pixscale, x0, y0, args.pa, args.incl, yc, cfg["slit_width_arcsec"],
-                            x_half_length_arcsec=xl, vel_err=verr, distance_mpc=args.distance,
+                            x_half_length_arcsec=xl, vel_err=verr, mask=mask, distance_mpc=args.distance,
                             pa_err_deg=pa_err, n_mc=cfg["n_mc"], rng=0, east_left=not args.east_right)
 print(res.summary())
+omega_abs = abs(res.omega_p)
 
-row = dict(name=args.name, pa=args.pa, pa_err=pa_err, incl=args.incl, bar_pa=args.bar_pa, dpa=dpa,
-           a_bar_sky_arcsec=args.a_bar, omega_sini=res.omega_sini, omega_sini_err=res.omega_sini_err,
-           omega_p=res.omega_p, omega_p_err=res.omega_p_err, v_sys=res.v_sys)
+row = dict(name=args.name, pa=args.pa, pa_err=pa_err, pa_phot=pa_phot, pa_phot_err=pa_phot_err, pa_kin=pa_kin, pa_kin_err=pa_kin_err,
+           incl=args.incl, bar_pa=args.bar_pa, dpa=dpa, a_bar_sky_arcsec=args.a_bar, distance_mpc=args.distance,
+           omega_sini=res.omega_sini, omega_sini_err=res.omega_sini_err, omega_p=omega_abs, omega_p_err=res.omega_p_err,
+           omega_p_err_fit=res.omega_p_err_fit, omega_p_err_pa=res.omega_p_err_pa, prograde=res.prograde, v_sys=res.v_sys)
 if args.vc is not None:
     a_kpc = deproject_bar_length(args.a_bar, args.bar_pa, args.pa, args.incl) * res.scale_kpc_arcsec
     a_err = (args.a_bar_err or 0.1 * args.a_bar) * res.scale_kpc_arcsec
-    rr = rotation_rate(res.omega_p, res.omega_p_err, args.vc, args.vc_err or 0.1 * args.vc, a_kpc, a_err, rng=0,
+    rr = rotation_rate(omega_abs, res.omega_p_err, args.vc, args.vc_err or 0.1 * args.vc, a_kpc, a_err, rng=0,
                        slow_boundary=cfg["fast_slow_boundary"])
     row.update(a_bar_kpc=a_kpc, vc=args.vc, **{k: v for k, v in rr.items()})
     print(f"a_bar = {a_kpc:.2f} kpc, R_cr = {rr['R_cr']:.2f} (+{rr['R_cr_err_hi']:.2f}/-{rr['R_cr_err_lo']:.2f}) kpc, "

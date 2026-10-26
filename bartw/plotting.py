@@ -33,7 +33,9 @@ def slit_overlay(flux, vel, res, slit_width, pixscale, east_left=True, axes=None
     ny, nx = flux.shape
     yy, xx = np.mgrid[0:ny, 0:nx]
     I = res.integrals
-    for ax, img, cmap, lab in ((axes[0], np.log10(flux), "gray_r", "log flux"),
+    with np.errstate(all="ignore"):
+        logf = np.where(np.isfinite(flux) & (flux > 0), np.log10(np.where(flux > 0, flux, 1)), np.nan)
+    for ax, img, cmap, lab in ((axes[0], logf, "gray_r", "log flux"),
                                (axes[1], vel - res.v_sys, "RdBu_r", r"$V - V_{\rm sys}$")):
         im = ax.imshow(img, origin="lower", cmap=cmap)
         plt.colorbar(im, ax=ax, label=lab, fraction=0.046)

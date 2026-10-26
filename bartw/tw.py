@@ -175,12 +175,15 @@ class TWResult:
     integrals: SlitIntegrals
     pa_mc: np.ndarray = field(default_factory=lambda: np.array([]))
     omega_mc: np.ndarray = field(default_factory=lambda: np.array([]))
+    rotation_sign: float = 0.0      # sign of dV/dX of the disc along the major axis (+1: receding at +X)
+    prograde: "bool | None" = None  # TW slope has the same sign as the disc rotation (must be True)
 
     def summary(self):
+        tag = "" if self.prograde is None else (" [prograde]" if self.prograde else " [RETROGRADE: unphysical, check PA/centre]")
         return (f"Omega_p sin i = {self.omega_sini:.3f} +/- {self.omega_sini_err:.3f} km/s/arcsec ; "
-                f"Omega_p = {self.omega_p:.1f} +/- {self.omega_p_err:.1f} km/s/kpc "
+                f"|Omega_p| = {abs(self.omega_p):.1f} +/- {self.omega_p_err:.1f} km/s/kpc "
                 f"(fit {self.omega_p_err_fit:.1f}, PA {self.omega_p_err_pa:.1f}); "
-                f"V_sys = {self.v_sys:.1f} km/s")
+                f"V_sys = {self.v_sys:.1f} km/s{tag}")
 
 
 def default_slit_centers(a_bar_arcsec, dpa_deg, n_slits, width, ymax_factor=0.9):
@@ -229,7 +232,21 @@ def measure_pattern_speed(flux, vel, pixscale, x0, y0, pa_deg, incl_deg,
         err_pa = 0.5 * (hi - lo)
 
     err_tot = float(np.hypot(err_fit, err_pa))
-    return TWResult(omega_sini=omega_sini, omega_sini_err=float(np.hypot(fit["slope_err"], err_pa * sini * scale)),
+    # disc rotation sense along the major axis (flux-weighted mean V on each side of the minor axis)
+    X, Y = sky_to_disc_axes(xx, yy, x0, y0, pa_deg, east_left)
+    X, Y = X * pixscale, Y * pixscale
+    okm = np.isfinite(flux) & np.isfinite(vel) & (flux > 0)
+    if mask is not None:
+        okm &= np.asarray(mask, bool)
+    band = okm & (np.abs(Y) <= max(2 * slit_width_arcsec, 2.0))
+    xl = x_half_length_arcsec or np.nanmax(np.abs(X[band])) if band.any() else 0
+    plus, minus = band & (X > 0.3 * xl), band & (X < -0.3 * xl)
+    rot = 0.0
+    if plus.sum() > 5 and minus.sum() > 5:
+        vp = np.average(vel[plus], weights=flux[plus]); vm = np.average(vel[minus], weights=flux[minus])
+        rot = float(np.sign(vp - vm))
+    prograde = None if rot == 0 else bool(np.sign(omega_sini) == rot)
+    return TWResult(rotation_sign=rot, prograde=prograde, omega_sini=omega_sini, omega_sini_err=float(np.hypot(fit["slope_err"], err_pa * sini * scale)),
                     omega_p=omega_p, omega_p_err=err_tot, omega_p_err_fit=err_fit,
                     omega_p_err_pa=err_pa, v_sys=fit["v_sys"], pa_deg=pa_deg,
                     incl_deg=incl_deg, scale_kpc_arcsec=scale, integrals=ints,

@@ -206,6 +206,7 @@ def fit_bins(cube, bin_num, z, templates, lam_range=(4750.0, 7000.0), fwhm_gal=2
     start = [vel0, 60.0]
 
     V = np.full(nb, np.nan); dV = V.copy(); S = V.copy(); dS = V.copy(); F = V.copy(); chi2 = V.copy()
+    dV0 = V.copy()
 
     def to_map(arr):
         out = np.full(bin_num.shape, np.nan)
@@ -219,8 +220,9 @@ def fit_bins(cube, bin_num, z, templates, lam_range=(4750.0, 7000.0), fwhm_gal=2
     flux_map[bin_num < 0] = np.nan
 
     def result():
-        return dict(v=V, v_err=dV, sigma=S, sigma_err=dS, bin_flux=F, chi2=chi2,
-                    v_map=to_map(V), v_err_map=to_map(dV), sigma_map=to_map(S), sigma_err_map=to_map(dS),
+        return dict(v=V, v_err=dV, v_err_formal=dV0, sigma=S, sigma_err=dS, bin_flux=F, chi2=chi2,
+                    v_map=to_map(V), v_err_map=to_map(dV), v_err_formal_map=to_map(dV0), sigma_map=to_map(S),
+                    sigma_err_map=to_map(dS), chi2_map=to_map(chi2),
                     flux_map=flux_map, bin_num=bin_num, velscale=velscale, v_sys_guess=vel0)
 
     n_fail = 0
@@ -253,6 +255,7 @@ def fit_bins(cube, bin_num, z, templates, lam_range=(4750.0, 7000.0), fwhm_gal=2
         V[b], S[b] = pp.sol[0], pp.sol[1]
         err = pp.error * np.sqrt(max(pp.chi2, 1.0))
         dV[b], dS[b] = err[0], err[1]
+        dV0[b] = pp.error[0]
         F[b] = norm
         chi2[b] = pp.chi2
         if progress and (b + 1) % 50 == 0:
@@ -278,8 +281,9 @@ def save_maps(path, maps, header=None):
             if k in header:
                 hdr[k if not k.startswith("HIERARCH") else "PROGID"] = header[k]
     hdus = [fits.PrimaryHDU(header=hdr)]
-    for k, name in (("flux_map", "FLUX"), ("v_map", "V"), ("v_err_map", "V_ERR"),
-                    ("sigma_map", "SIGMA"), ("sigma_err_map", "SIGMA_ERR")):
-        hdus.append(fits.ImageHDU(maps[k].astype(np.float32), name=name, header=hdr))
+    for k, name in (("flux_map", "FLUX"), ("v_map", "V"), ("v_err_map", "V_ERR"), ("v_err_formal_map", "V_ERR_FORMAL"),
+                    ("sigma_map", "SIGMA"), ("sigma_err_map", "SIGMA_ERR"), ("chi2_map", "CHI2")):
+        if k in maps:
+            hdus.append(fits.ImageHDU(maps[k].astype(np.float32), name=name, header=hdr))
     hdus.append(fits.ImageHDU(maps["bin_num"].astype(np.int32), name="BINNUM", header=hdr))
     fits.HDUList(hdus).writeto(path, overwrite=True)
