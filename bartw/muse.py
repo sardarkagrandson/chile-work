@@ -93,8 +93,14 @@ def crossmatch_local(ra, dec, products, kind, radius_arcmin):
     if len(products) == 0:
         return pd.DataFrame(columns=["idx", "kind"])
     rc, dc = ("s_ra", "s_dec") if kind == "cube" else ("ra", "dec")
-    ok = np.isfinite(products[rc].to_numpy(float)) & np.isfinite(products[dc].to_numpy(float))
+    ra_p = pd.to_numeric(products[rc], errors="coerce").to_numpy(float)
+    dec_p = pd.to_numeric(products[dc], errors="coerce").to_numpy(float)
+    # raw frames without a valid pointing carry placeholder coordinates
+    ok = np.isfinite(ra_p) & np.isfinite(dec_p) & (np.abs(dec_p) <= 90.0) & (ra_p >= 0.0) & (ra_p < 360.0)
+    if (~ok).sum():
+        print(f"[muse] {int((~ok).sum())} {kind} rows without valid coordinates skipped")
     prod = products[ok].reset_index(drop=True)
+    prod[rc], prod[dc] = ra_p[ok], dec_p[ok]
     c_t = SkyCoord(np.atleast_1d(ra) * u.deg, np.atleast_1d(dec) * u.deg)
     c_p = SkyCoord(prod[rc].to_numpy(float) * u.deg, prod[dc].to_numpy(float) * u.deg)
     i_t, i_p, sep, _ = c_p.search_around_sky(c_t, radius_arcmin * u.arcmin)

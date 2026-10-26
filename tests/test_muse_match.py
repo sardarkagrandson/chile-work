@@ -23,3 +23,9 @@ def test_crossmatch_local_and_summary():
     assert cov.MUSE_EXPTIME_S.iloc[0] == 3600.0
     assert bool(cov.MUSE_PUBLIC.iloc[0]) and bool(cov.MUSE_DEEP_ENOUGH.iloc[0])
     assert cov.MUSE_DP_IDS.iloc[0] in ("A;B", "B;A")
+
+
+def test_crossmatch_local_skips_invalid_coordinates():
+    prods = pd.DataFrame({"ra": [10.0, -9999.0, 10.0], "dec": [5.0, -9999.0, 95.0], "dp_id": ["A", "B", "C"]})
+    hits = crossmatch_local([10.0], [5.0], prods, "raw", radius_arcmin=0.5)
+    assert list(hits.dp_id) == ["A"]
