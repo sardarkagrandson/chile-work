@@ -172,12 +172,15 @@ def load_templates(templates, velscale, fwhm_gal=2.65, norm_range=(5070.0, 5950.
 
 
 def fit_bins(cube, bin_num, z, templates, lam_range=(4750.0, 7000.0), fwhm_gal=2.65,
-             moments=2, degree=12, mask_lines=True, quiet=True, progress=True):
+             moments=2, degree=12, mask_lines=True, quiet=True, progress=True,
+             checkpoint=None, checkpoint_every=300):
     """pPXF fit of each Voronoi bin. Returns dict of per-bin arrays and maps.
 
     ``templates``: pPXF SPS .npz path, or (templates_2d, lam_temp).
     ``fwhm_gal``: instrumental LSF FWHM in Angstrom (MUSE ~2.65 A at 5000 A;
     only V matters for TW so this is not critical).
+    ``checkpoint``: (path, header) -> the maps are written there every
+    ``checkpoint_every`` bins and at the end, so a crash loses little.
     """
     from ppxf import ppxf_util as util
     from ppxf.ppxf import ppxf
@@ -185,9 +188,16 @@ def fit_bins(cube, bin_num, z, templates, lam_range=(4750.0, 7000.0), fwhm_gal=2
     lam, spectra, variances = stack_bins(cube, bin_num, lam_range)
     nb = spectra.shape[1]
     lam_range_gal = [lam[0], lam[-1]]
-    # velscale from the first spectrum; log-rebin everything on that scale
-    first = np.where(np.isfinite(spectra[:, 0]), spectra[:, 0], 0.0)
-    _, ln_lam, velscale = util.log_rebin(lam_range_gal, first)
+    finite = np.isfinite(spectra)
+    # log-rebin ALL bins at once on one shared grid (avoids one-pixel length
+    # mismatches between bins); masked wavelengths are carried as a weight map
+    gal_all, ln_lam, velscale = util.log_rebin(lam_range_gal, np.where(finite, spectra, 0.0))
+    bad_all, _, _ = util.log_rebin(lam_range_gal, (~finite).astype(float))
+    var_fill = np.where(np.isfinite(variances) & (variances > 0), variances, np.nan)
+    med_var = np.nanmedian(var_fill, axis=0)
+    var_fill = np.where(np.isfinite(var_fill), var_fill, med_var[None, :])
+    have_var = np.isfinite(med_var) & (med_var > 0)
+    var_all, _, _ = util.log_rebin(lam_range_gal, np.where(np.isfinite(var_fill), var_fill, 0.0))
     lam_gal = np.exp(ln_lam)
     temp, lam_temp = load_templates(templates, velscale, fwhm_gal)
     lam_range_temp = [lam_temp[0], lam_temp[-1]]
@@ -196,44 +206,6 @@ def fit_bins(cube, bin_num, z, templates, lam_range=(4750.0, 7000.0), fwhm_gal=2
     start = [vel0, 60.0]
 
     V = np.full(nb, np.nan); dV = V.copy(); S = V.copy(); dS = V.copy(); F = V.copy(); chi2 = V.copy()
-    for b in range(nb):
-        spec = spectra[:, b]
-        finite = np.isfinite(spec)
-        if finite.sum() < 0.5 * spec.size:
-            continue
-        gal, _, _ = util.log_rebin(lam_range_gal, np.where(finite, spec, 0.0), velscale=velscale)
-        bad_mask, _, _ = util.log_rebin(lam_range_gal, (~finite).astype(float), velscale=velscale)
-        if np.isfinite(variances[:, b]).any() and np.nanmax(variances[:, b]) > 0:
-            var_b = np.where(np.isfinite(variances[:, b]) & (variances[:, b] > 0), variances[:, b], np.nan)
-            var_b = np.where(np.isfinite(var_b), var_b, np.nanmedian(var_b))
-            noise, _, _ = util.log_rebin(lam_range_gal, var_b, velscale=velscale)
-            noise = np.sqrt(np.clip(noise, 1e-12, None))
-        else:
-            noise = np.full_like(gal, max(np.nanstd(np.diff(gal)) / np.sqrt(2), 1e-6))
-        norm = np.nanmedian(gal[gal > 0]) if np.any(gal > 0) else np.nan
-        if not np.isfinite(norm) or norm <= 0:
-            continue
-        gal, noise = gal / norm, noise / norm
-        usable = (bad_mask < 0.01) & np.isfinite(gal) & np.isfinite(noise) & (noise > 0)
-        goodpix = np.intersect1d(good_lines, np.where(usable)[0])
-        if goodpix.size < 100:
-            continue
-        gal[~usable] = 0.0
-        noise[~usable] = 1e3
-        try:
-            pp = ppxf(temp, gal, noise, velscale, start, moments=moments, degree=degree,
-                      lam=lam_gal, lam_temp=lam_temp, goodpixels=goodpix, quiet=quiet)
-        except Exception as exc:
-            if progress:
-                print(f"[ppxf] bin {b} failed: {exc}")
-            continue
-        V[b], S[b] = pp.sol[0], pp.sol[1]
-        err = pp.error * np.sqrt(max(pp.chi2, 1.0))
-        dV[b], dS[b] = err[0], err[1]
-        F[b] = norm
-        chi2[b] = pp.chi2
-        if progress and (b + 1) % 50 == 0:
-            print(f"[ppxf] {b + 1}/{nb} bins")
 
     def to_map(arr):
         out = np.full(bin_num.shape, np.nan)
@@ -245,13 +217,57 @@ def fit_bins(cube, bin_num, z, templates, lam_range=(4750.0, 7000.0), fwhm_gal=2
     with np.errstate(all="ignore"):
         flux_map = np.nanmedian(cube.data[s], axis=0)      # per-spaxel continuum flux (TW photometric tracer)
     flux_map[bin_num < 0] = np.nan
-    return dict(v=V, v_err=dV, sigma=S, sigma_err=dS, bin_flux=F, chi2=chi2,
-                v_map=to_map(V), v_err_map=to_map(dV), sigma_map=to_map(S), sigma_err_map=to_map(dS),
-                flux_map=flux_map, bin_num=bin_num, velscale=velscale, v_sys_guess=vel0)
+
+    def result():
+        return dict(v=V, v_err=dV, sigma=S, sigma_err=dS, bin_flux=F, chi2=chi2,
+                    v_map=to_map(V), v_err_map=to_map(dV), sigma_map=to_map(S), sigma_err_map=to_map(dS),
+                    flux_map=flux_map, bin_num=bin_num, velscale=velscale, v_sys_guess=vel0)
+
+    n_fail = 0
+    for b in range(nb):
+        if finite[:, b].sum() < 0.5 * finite.shape[0]:
+            continue
+        gal = gal_all[:, b].copy()
+        if have_var[b]:
+            noise = np.sqrt(np.clip(var_all[:, b], 1e-12, None))
+        else:
+            noise = np.full_like(gal, max(np.nanstd(np.diff(gal)) / np.sqrt(2), 1e-6))
+        norm = np.nanmedian(gal[gal > 0]) if np.any(gal > 0) else np.nan
+        if not np.isfinite(norm) or norm <= 0:
+            continue
+        gal, noise = gal / norm, noise / norm
+        usable = (bad_all[:, b] < 0.01) & np.isfinite(gal) & np.isfinite(noise) & (noise > 0)
+        goodpix = np.intersect1d(good_lines, np.where(usable)[0])
+        if goodpix.size < 100:
+            continue
+        gal[~usable] = 0.0
+        noise[~usable] = 1e3
+        try:
+            pp = ppxf(temp, gal, noise, velscale, start, moments=moments, degree=degree,
+                      lam=lam_gal, lam_temp=lam_temp, goodpixels=goodpix, quiet=quiet)
+        except Exception as exc:
+            n_fail += 1
+            if progress and n_fail <= 5:
+                print(f"[ppxf] bin {b} failed: {exc}")
+            continue
+        V[b], S[b] = pp.sol[0], pp.sol[1]
+        err = pp.error * np.sqrt(max(pp.chi2, 1.0))
+        dV[b], dS[b] = err[0], err[1]
+        F[b] = norm
+        chi2[b] = pp.chi2
+        if progress and (b + 1) % 50 == 0:
+            print(f"[ppxf] {b + 1}/{nb} bins")
+        if checkpoint is not None and (b + 1) % checkpoint_every == 0:
+            save_maps(checkpoint[0], result(), checkpoint[1])
+    if n_fail:
+        print(f"[ppxf] {n_fail} bins failed")
+    return result()
 
 
 def save_maps(path, maps, header=None):
     """Write FLUX, V, V_ERR, SIGMA, SIGMA_ERR, BINNUM image extensions (+ celestial WCS)."""
+    import pathlib
+    pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
     hdr = fits.Header()
     if header is not None:
         try:

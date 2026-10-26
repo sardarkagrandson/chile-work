@@ -50,10 +50,15 @@ print(f"cube {cube.data.shape} read in {time.time() - t0:.0f} s; {cube.lam[0]:.0
 sig, noise = white_light(cube)
 bins = voronoi_bins(sig, noise, args.target_sn, args.snr_min)
 print(f"{bins.max() + 1} Voronoi bins from {(bins >= 0).sum()} spaxels (S/N >= {args.snr_min})")
-maps = fit_bins(cube, bins, args.z, args.templates, lam_range=tuple(args.lam_range), degree=args.degree)
+import pathlib as _pl
+_pl.Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+maps = fit_bins(cube, bins, args.z, args.templates, lam_range=tuple(args.lam_range), degree=args.degree,
+                checkpoint=(args.out, cube.header))
 ok = np.isfinite(maps["v"])
+bright = ok & (maps["bin_flux"] >= np.nanpercentile(maps["bin_flux"][ok], 70)) if ok.any() else ok
 print(f"fitted {ok.sum()}/{bins.max() + 1} bins in {(time.time() - t0) / 60:.1f} min; "
       f"V median {np.nanmedian(maps['v']):.0f} km/s (cz = {299792.458 * args.z:.0f}), "
-      f"sigma median {np.nanmedian(maps['sigma']):.0f} km/s, median V error {np.nanmedian(maps['v_err']):.1f} km/s")
+      f"sigma median {np.nanmedian(maps['sigma']):.0f} km/s; median V error {np.nanmedian(maps['v_err']):.1f} km/s "
+      f"(brightest 30% of bins: {np.nanmedian(maps['v_err'][bright]):.1f} km/s)")
 save_maps(args.out, maps, cube.header)
 print(f"wrote {args.out}  (FLUX, V, V_ERR, SIGMA, SIGMA_ERR, BINNUM)")
