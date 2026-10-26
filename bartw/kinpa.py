@@ -15,7 +15,7 @@ import numpy as np
 from scipy.ndimage import map_coordinates
 
 
-def _fold(v, x0, y0, pa_deg, east_left=True, radius_pix=None):
+def _fold(v, x0, y0, pa_deg, east_left=True, radius_pix=None, rmin_pix=None):
     ny, nx = v.shape
     yy, xx = np.mgrid[0:ny, 0:nx].astype(float)
     pa = np.radians(pa_deg)
@@ -26,6 +26,8 @@ def _fold(v, x0, y0, pa_deg, east_left=True, radius_pix=None):
     good = np.isfinite(v)
     if radius_pix is not None:
         good &= np.hypot(X, Y) <= radius_pix
+    if rmin_pix is not None:
+        good &= np.hypot(X, Y) >= rmin_pix
     filled = np.where(np.isfinite(v), v, 0.0)
     wgt = np.isfinite(v).astype(float)
 
@@ -44,10 +46,13 @@ def _fold(v, x0, y0, pa_deg, east_left=True, radius_pix=None):
     return vsym, ok, X
 
 
-def fit_kinematic_pa(v, x0, y0, east_left=True, radius_pix=None, v_err=None, step=1.0, v_sys=None):
-    """Return dict(pa_kin, pa_kin_err, v_sys, receding_pa, chi2_curve) with PA in degrees
-    (north through east, 0-180). ``receding_pa`` is the PA (0-360) of the side with
-    V > V_sys along the kinematic major axis."""
+def fit_kinematic_pa(v, x0, y0, east_left=True, radius_pix=None, v_err=None, step=1.0, v_sys=None, rmin_pix=None):
+    """Return dict(pa_kin, pa_kin_err, v_sys, receding_pa, chi2_curve, v_amp, detected) with PA in
+    degrees (north through east, 0-180). ``receding_pa`` is the PA (0-360) of the side with
+    V > V_sys along the kinematic major axis. Pixels with rmin_pix <= r <= radius_pix are used
+    (an annulus outside the bar gives the disc line of nodes; the bar region is twisted by
+    streaming motions). ``v_amp`` is the flux-free mean |V - V_sys| of the two halves along the
+    best axis and ``detected`` says whether it exceeds 3x the median velocity error."""
     v = np.asarray(v, float)
     if v_sys is None:
         v_sys = np.nanmedian(v)
@@ -55,7 +60,7 @@ def fit_kinematic_pa(v, x0, y0, east_left=True, radius_pix=None, v_err=None, ste
     pas = np.arange(0.0, 180.0, step)
     chi2 = np.full(pas.size, np.nan)
     for i, pa in enumerate(pas):
-        vsym, ok, _ = _fold(vv, x0, y0, pa, east_left, radius_pix)
+        vsym, ok, _ = _fold(vv, x0, y0, pa, east_left, radius_pix, rmin_pix)
         if ok.sum() < 20:
             continue
         res = (vv - vsym)[ok]
@@ -65,6 +70,9 @@ def fit_kinematic_pa(v, x0, y0, east_left=True, radius_pix=None, v_err=None, ste
             chi2[i] = np.sum((res / e) ** 2)
         else:
             chi2[i] = np.sum(res**2)
+    if not np.isfinite(chi2).any():
+        return dict(pa_kin=np.nan, pa_kin_err=np.nan, v_sys=float(v_sys), receding_pa=np.nan, pas=pas, chi2=chi2,
+                    n_pix=0, v_amp=np.nan, detected=False)
     k = int(np.nanargmin(chi2))
     pa_best = pas[k]
     # parabolic refinement around the minimum
@@ -73,7 +81,7 @@ def fit_kinematic_pa(v, x0, y0, east_left=True, radius_pix=None, v_err=None, ste
     if np.isfinite([y0_, y1, y2]).all() and (y0_ - 2 * y1 + y2) > 0:
         pa_best = pas[k] + 0.5 * step * (y0_ - y2) / (y0_ - 2 * y1 + y2)
     # 1-sigma error: delta chi2 = 1 after scaling to chi2_red = 1 at the minimum
-    _, ok, _ = _fold(vv, x0, y0, pa_best, east_left, radius_pix)
+    _, ok, _ = _fold(vv, x0, y0, pa_best, east_left, radius_pix, rmin_pix)
     dof = max(int(ok.sum()) - 1, 1)
     scale = chi2[k] / dof
     thresh = chi2[k] + max(scale, 1e-12) * 3.0        # 3 sigma range -> /3 below (robust to the discrete grid)
@@ -93,8 +101,18 @@ def fit_kinematic_pa(v, x0, y0, east_left=True, radius_pix=None, v_err=None, ste
             break
     err = max(0.5 * (width + width_m) * step / 3.0, 0.5 * step)
     # receding side: sign of the mean velocity for X > 0 along the best PA
-    _, ok, X = _fold(vv, x0, y0, pa_best, east_left, radius_pix)
-    pos = ok & (X > 0)
-    receding_pa = pa_best % 360 if np.nanmean(vv[pos]) > 0 else (pa_best + 180) % 360
+    _, ok, X = _fold(vv, x0, y0, pa_best, east_left, radius_pix, rmin_pix)
+    pos, neg = ok & (X > 0), ok & (X < 0)
+    vp, vn = np.nanmean(vv[pos]), np.nanmean(vv[neg])
+    receding_pa = pa_best % 360 if vp > vn else (pa_best + 180) % 360
+    v_amp = 0.5 * abs(vp - vn)
+    if v_err is not None:
+        med_err = float(np.nanmedian(np.asarray(v_err, float)[ok]))
+        detected = bool(v_amp > 3.0 * med_err / np.sqrt(max(ok.sum() / 50.0, 1.0)))   # ~50 spaxels per bin
+    else:
+        detected = bool(v_amp > 3.0 * np.nanstd((vv - _fold(vv, x0, y0, pa_best, east_left, radius_pix, rmin_pix)[0])[ok]))
+    if not detected:
+        err = max(err, 45.0)       # PA undefined when no rotation is detected
     return dict(pa_kin=float(pa_best % 180), pa_kin_err=float(err), v_sys=float(v_sys),
-                receding_pa=float(receding_pa), pas=pas, chi2=chi2, n_pix=int(ok.sum()))
+                receding_pa=float(receding_pa), pas=pas, chi2=chi2, n_pix=int(ok.sum()),
+                v_amp=float(v_amp), detected=detected)

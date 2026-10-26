@@ -23,3 +23,16 @@ def test_kinematic_pa_with_bar_still_close():
     flux, vel, verr, t = make_mock(p)
     r = fit_kinematic_pa(vel, t["x0"], t["y0"], radius_pix=100, v_err=verr)
     assert abs(((r["pa_kin"] - 35.0 + 90) % 180) - 90) < 5.0
+
+
+def test_annulus_fit_and_no_detection():
+    p = MockParams(pa_deg=35.0, incl_deg=50.0, bar_phi_deg=40.0, vel_noise_kms=5.0)
+    flux, vel, verr, t = make_mock(p)
+    a = t["a_bar_sky_arcsec"] / p.pixscale
+    r = fit_kinematic_pa(vel, t["x0"], t["y0"], radius_pix=3 * a, rmin_pix=1.2 * a, v_err=verr)
+    assert abs(((r["pa_kin"] - 35.0 + 90) % 180) - 90) < 3.0 and r["detected"]
+    # no rotation: pure noise field -> not detected, PA error inflated
+    rng = np.random.default_rng(0)
+    noise = rng.normal(0, 10, vel.shape)
+    r0 = fit_kinematic_pa(noise + 500, t["x0"], t["y0"], radius_pix=3 * a, v_err=np.full(vel.shape, 10.0))
+    assert not r0["detected"] and r0["pa_kin_err"] >= 45

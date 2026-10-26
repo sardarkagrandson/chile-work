@@ -87,16 +87,36 @@ if verr is not None:
     print(f"velocity-error mask: {bad.sum()} of {mask.sum()} spaxels have V error > {vmax:.0f} km/s "
           f"({100 * bad.sum() / mask.sum():.1f}%) and are excluded")
     mask &= ~bad
+kin_note = ""
 if not args.no_kin_pa:
     from bartw.kinpa import fit_kinematic_pa
-    rk = args.kin_radius if args.kin_radius is not None else 2.0 * args.a_bar
-    kp = fit_kinematic_pa(np.where(mask, vel, np.nan), x0, y0, east_left=not args.east_right,
-                          radius_pix=rk / args.pixscale, v_err=verr)
-    pa_kin, pa_kin_err = kp["pa_kin"], max(kp["pa_kin_err"], 1.0)
-    print(f"kinematic PA = {pa_kin:.1f} +/- {pa_kin_err:.1f} deg (within {rk:.0f}\", {kp['n_pix']} spaxels, V_sys {kp['v_sys']:.1f}); "
-          f"photometric PA = {pa_phot:.1f} +/- {pa_phot_err:.1f} deg; difference {pa_difference(pa_kin, pa_phot):.1f} deg; "
-          f"receding side at PA {kp['receding_pa']:.0f}")
-    args.pa, pa_err = pa_kin, pa_kin_err
+    vmasked = np.where(mask, vel, np.nan)
+    yy_, xx_ = np.mgrid[0:ny, 0:nx]
+    rmax_field = np.nanmax(np.hypot(xx_ - x0, yy_ - y0)[mask]) * args.pixscale
+    # disc line of nodes: annulus OUTSIDE the bar (streaming motions twist the inner field)
+    r_in = 1.2 * args.a_bar
+    r_out = args.kin_radius if args.kin_radius is not None else min(3.0 * args.a_bar, 0.95 * rmax_field)
+    kp_out = fit_kinematic_pa(vmasked, x0, y0, east_left=not args.east_right, radius_pix=r_out / args.pixscale,
+                              rmin_pix=r_in / args.pixscale, v_err=verr)
+    kp_in = fit_kinematic_pa(vmasked, x0, y0, east_left=not args.east_right, radius_pix=r_in / args.pixscale, v_err=verr)
+    print(f"kinematic PA, disc annulus {r_in:.0f}-{r_out:.0f}\": {kp_out['pa_kin']:.1f} +/- {kp_out['pa_kin_err']:.1f} deg "
+          f"({kp_out['n_pix']} spaxels, rotation amplitude {kp_out['v_amp']:.1f} km/s, "
+          f"{'detected' if kp_out['detected'] else 'NOT detected'}; receding side at PA {kp_out['receding_pa']:.0f})")
+    print(f"kinematic PA, bar region < {r_in:.0f}\":   {kp_in['pa_kin']:.1f} +/- {kp_in['pa_kin_err']:.1f} deg "
+          f"(twist relative to the disc annulus: {pa_difference(kp_in['pa_kin'], kp_out['pa_kin']):.1f} deg)")
+    print(f"photometric disc PA: {pa_phot:.1f} +/- {pa_phot_err:.1f} deg; kinematic (annulus) - photometric = "
+          f"{pa_difference(kp_out['pa_kin'], pa_phot):.1f} deg")
+    pa_kin, pa_kin_err = kp_out["pa_kin"], max(kp_out["pa_kin_err"], 1.0)
+    if kp_out["detected"] and kp_out["n_pix"] >= 300:
+        args.pa, pa_err = pa_kin, pa_kin_err
+        kin_note = "kinematic PA (disc annulus)"
+        if pa_difference(pa_kin, pa_phot) > 3.0 * np.hypot(pa_kin_err, pa_phot_err):
+            print("WARNING: kinematic and photometric disc PAs disagree beyond 3 sigma: a warped, lopsided or "
+                  "bar-dominated field; both PAs are run below, judge from the diagrams")
+            kin_note += " (disagrees with photometry)"
+    else:
+        print("rotation not detected outside the bar (or too few spaxels): keeping the photometric PA")
+        kin_note = "photometric PA (no kinematic detection)"
 dpa = float(pa_difference(args.bar_pa, args.pa))
 print(f"using disc PA {args.pa:.1f} +/- {pa_err:.1f}; bar-disc angle {dpa:.1f} deg")
 yc = default_slit_centers(args.a_bar, dpa, cfg["n_slits"], cfg["slit_width_arcsec"], cfg["slit_ymax_factor"])
@@ -105,13 +125,25 @@ xl = cfg["slit_half_length_factor"] * args.a_bar
 res = measure_pattern_speed(flux, vel, args.pixscale, x0, y0, args.pa, args.incl, yc, cfg["slit_width_arcsec"],
                             x_half_length_arcsec=xl, vel_err=verr, mask=mask, distance_mpc=args.distance,
                             pa_err_deg=pa_err, n_mc=cfg["n_mc"], rng=0, east_left=not args.east_right)
-print(res.summary())
+print(f"TW with {kin_note or 'the given PA'}:")
+print("   " + res.summary())
+sig = abs(res.omega_sini) / res.omega_sini_err if res.omega_sini_err > 0 else np.nan
+print(f"   detection significance of the TW slope: {sig:.1f} sigma" + ("" if sig >= 3 else "  -> upper limit only"))
+if not args.no_kin_pa and np.isfinite(pa_kin) and pa_difference(pa_kin, pa_phot) > 2.0:
+    dpa_p = float(pa_difference(args.bar_pa, pa_phot))
+    yc_p = default_slit_centers(args.a_bar, dpa_p, cfg["n_slits"], cfg["slit_width_arcsec"], cfg["slit_ymax_factor"])
+    res_p = measure_pattern_speed(flux, vel, args.pixscale, x0, y0, pa_phot, args.incl, yc_p, cfg["slit_width_arcsec"],
+                                  x_half_length_arcsec=xl, vel_err=verr, mask=mask, distance_mpc=args.distance,
+                                  pa_err_deg=pa_phot_err, n_mc=cfg["n_mc"], rng=0, east_left=not args.east_right)
+    print(f"TW with the photometric PA ({pa_phot:.1f} +/- {pa_phot_err:.1f}) for comparison:")
+    print("   " + res_p.summary())
 omega_abs = abs(res.omega_p)
 
 row = dict(name=args.name, pa=args.pa, pa_err=pa_err, pa_phot=pa_phot, pa_phot_err=pa_phot_err, pa_kin=pa_kin, pa_kin_err=pa_kin_err,
            incl=args.incl, bar_pa=args.bar_pa, dpa=dpa, a_bar_sky_arcsec=args.a_bar, distance_mpc=args.distance,
            omega_sini=res.omega_sini, omega_sini_err=res.omega_sini_err, omega_p=omega_abs, omega_p_err=res.omega_p_err,
-           omega_p_err_fit=res.omega_p_err_fit, omega_p_err_pa=res.omega_p_err_pa, prograde=res.prograde, v_sys=res.v_sys)
+           omega_p_err_fit=res.omega_p_err_fit, omega_p_err_pa=res.omega_p_err_pa, prograde=res.prograde, v_sys=res.v_sys,
+           tw_significance=sig, pa_source=kin_note)
 if args.vc is not None:
     a_kpc = deproject_bar_length(args.a_bar, args.bar_pa, args.pa, args.incl) * res.scale_kpc_arcsec
     a_err = (args.a_bar_err or 0.1 * args.a_bar) * res.scale_kpc_arcsec
