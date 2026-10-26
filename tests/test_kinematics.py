@@ -75,3 +75,33 @@ def test_spatial_cutout_updates_wcs(tmp_path):
     x, y = cut.wcs.all_world2pix(ra, dec, 0)
     assert abs(x - 5) < 1e-6 and abs(y - 5) < 1e-6
     np.testing.assert_allclose(cut.data[:, 5, 5], full.data[:, 18, 20])
+
+
+def test_gas_moments_and_rotation_curve(tmp_path):
+    """Add a Halpha line that follows the velocity field; recover V and the rotation curve."""
+    from bartw.gaskin import circular_velocity, line_moments, rotation_curve
+    from bartw.kinpa import fit_kinematic_pa
+    path = tmp_path / "cube.fits"
+    vel_true, flux, templates = _make_cube(path, z=0.004, vmax=60.0)
+    with fits.open(path, mode="update") as h:
+        data = h["DATA"].data
+        lam = 4750.0 + np.arange(data.shape[0]) * 1.25
+        ny, nx = data.shape[1:]
+        for j in range(ny):
+            for i in range(nx):
+                if np.isfinite(vel_true[j, i]) and j >= 3:
+                    lc = 6562.8 * (1 + vel_true[j, i] / C)
+                    data[:, j, i] += 30.0 * np.exp(-0.5 * ((lam - lc) / 2.0) ** 2)
+        h.flush()
+    cube = read_muse_cube(path)
+    m = line_moments(cube, 0.004)
+    ok = m["good"]
+    assert ok.sum() > 0.8 * (np.isfinite(vel_true).sum() - 3 * nx)
+    assert np.nanmedian(np.abs(m["vel"] - vel_true)[ok]) < 10.0   # moment centroid on 57 km/s pixels, stellar absorption underneath
+    kp = fit_kinematic_pa(m["vel"], 14.5, 14.5, east_left=True, radius_pix=12, v_err=m["vel_err"])
+    # mock rotation is about the y axis: V depends on x -> major axis along x = east-west -> PA 90
+    assert abs(((kp["pa_kin"] - 90) + 90) % 180 - 90) < 5.0
+    # the mock field has no inclination factor; with an assumed i the recovered V_c is vmax / sin i
+    rc = rotation_curve(m["vel"], 14.5, 14.5, kp["pa_kin"], 60.0, C * 0.004, 0.2, east_left=True, dr_arcsec=0.4)
+    vc, vc_err, n = circular_velocity(rc, r_min_arcsec=1.5)
+    assert 45 < vc * np.sin(np.radians(60.0)) < 65 and n >= 2

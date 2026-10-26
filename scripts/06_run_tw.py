@@ -39,6 +39,9 @@ ap.add_argument("--pixscale", type=float, default=0.2)
 ap.add_argument("--vc", type=float, default=None); ap.add_argument("--vc-err", type=float, default=None)
 ap.add_argument("--east-right", action="store_true")
 ap.add_argument("--no-kin-pa", action="store_true", help="use the photometric PA instead of fitting the kinematic PA")
+ap.add_argument("--pa-source", choices=["stars", "gas", "phot"], default="stars",
+                help="which disc PA to use: stellar kinematic annulus (default), gas kinematic annulus (needs --gas-csv), or photometric")
+ap.add_argument("--gas-csv", default=None, help="products/<name>_gaskin.csv from scripts/07_gas_kinematics.py: gas PA and V_c")
 ap.add_argument("--kin-radius", type=float, default=None, help="radius [arcsec] for the kinematic PA fit (default 2 a_bar)")
 ap.add_argument("--max-verr", type=float, default=None, help="drop spaxels with V error above this [km/s] (default: 4x the median of the bright bins)")
 ap.add_argument("--config", default=None)
@@ -117,8 +120,22 @@ if not args.no_kin_pa:
     else:
         print("rotation not detected outside the bar (or too few spaxels): keeping the photometric PA")
         kin_note = "photometric PA (no kinematic detection)"
+gas = None
+if args.gas_csv:
+    import pandas as pd
+    gas = pd.read_csv(args.gas_csv).iloc[0]
+    print(f"gas kinematics: PA (annulus) {gas.pa_gas_annulus:.1f} +/- {gas.pa_gas_err:.1f} ({'detected' if gas.detected else 'NOT detected'}), "
+          f"V_c = {gas.vc:.1f} +/- {gas.vc_err:.1f} km/s (i = {gas.incl_used:.1f})")
+    if args.vc is None and np.isfinite(gas.vc):
+        args.vc, args.vc_err = float(gas.vc), float(gas.vc_err)
+if args.pa_source == "gas":
+    if gas is None or not gas.detected:
+        raise SystemExit("--pa-source gas needs --gas-csv with detected gas rotation")
+    args.pa, pa_err, kin_note = float(gas.pa_gas_annulus), max(float(gas.pa_gas_err), 1.0), "gas kinematic PA (annulus)"
+elif args.pa_source == "phot":
+    args.pa, pa_err, kin_note = pa_phot, pa_phot_err, "photometric PA"
 dpa = float(pa_difference(args.bar_pa, args.pa))
-print(f"using disc PA {args.pa:.1f} +/- {pa_err:.1f}; bar-disc angle {dpa:.1f} deg")
+print(f"using disc PA {args.pa:.1f} +/- {pa_err:.1f} [{kin_note or 'given'}]; bar-disc angle {dpa:.1f} deg")
 yc = default_slit_centers(args.a_bar, dpa, cfg["n_slits"], cfg["slit_width_arcsec"], cfg["slit_ymax_factor"])
 xl = cfg["slit_half_length_factor"] * args.a_bar
 
@@ -149,7 +166,7 @@ if args.vc is not None:
     a_err = (args.a_bar_err or 0.1 * args.a_bar) * res.scale_kpc_arcsec
     rr = rotation_rate(omega_abs, res.omega_p_err, args.vc, args.vc_err or 0.1 * args.vc, a_kpc, a_err, rng=0,
                        slow_boundary=cfg["fast_slow_boundary"])
-    row.update(a_bar_kpc=a_kpc, vc=args.vc, **{k: v for k, v in rr.items()})
+    row.update(a_bar_kpc=a_kpc, vc=args.vc, vc_err=args.vc_err, **{k: v for k, v in rr.items()})
     print(f"a_bar = {a_kpc:.2f} kpc, R_cr = {rr['R_cr']:.2f} (+{rr['R_cr_err_hi']:.2f}/-{rr['R_cr_err_lo']:.2f}) kpc, "
           f"R = {rr['R']:.2f} (+{rr['R_err_hi']:.2f}/-{rr['R_err_lo']:.2f})  -> {rr['regime']} "
           f"(p_slow={rr['p_slow']:.2f}, p_fast={rr['p_fast']:.2f}, p_uf={rr['p_ultrafast']:.2f})")
