@@ -97,7 +97,9 @@ def sky_to_pixel(cube, ra, dec):
 def white_light(cube, lam_range=(4800.0, 5500.0)):
     """Signal and noise images (per spaxel) over a line-free window."""
     s = (cube.lam >= lam_range[0]) & (cube.lam <= lam_range[1])
-    with np.errstate(all="ignore"):
+    import warnings
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
         signal = np.nanmedian(cube.data[s], axis=0)
         if cube.var is not None:
             noise = np.sqrt(np.nanmedian(cube.var[s], axis=0))
@@ -117,8 +119,11 @@ def voronoi_bins(signal, noise, target_sn=40.0, snr_min=1.0, mask=None):
         good &= mask
     if good.sum() < 10:
         raise ValueError("fewer than 10 spaxels above the S/N threshold")
-    bin_num, *_ = voronoi_2d_binning(xx[good], yy[good], signal[good], noise[good],
-                                     target_sn, plot=False, quiet=True)
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        bin_num, *_ = voronoi_2d_binning(xx[good], yy[good], signal[good], noise[good],
+                                         target_sn, pixelsize=1.0, plot=False, quiet=True)
     out = np.full(signal.shape, -1, dtype=int)
     out[good] = bin_num
     return out
