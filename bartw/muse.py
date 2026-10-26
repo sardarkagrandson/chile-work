@@ -60,6 +60,7 @@ def query_muse(ra, dec, cfg_muse, raw=None, sleep=0.3):
     r_deg = cfg_muse["search_radius_arcmin"] / 60.0
     include_raw = cfg_muse.get("include_raw", True) if raw is None else raw
     rows = []
+    n_fail = 0
     for i, (r, d) in enumerate(zip(np.atleast_1d(ra), np.atleast_1d(dec))):
         for kind, q in (("cube", OBSCORE_QUERY), ("raw", RAW_QUERY if include_raw else None)):
             if q is None:
@@ -68,16 +69,20 @@ def query_muse(ra, dec, cfg_muse, raw=None, sleep=0.3):
                 res = svc.search(q.format(instrument=cfg_muse["instrument"], ra=r, dec=d, r_deg=r_deg))
                 df = res.to_table().to_pandas()
             except Exception as exc:  # network / ADQL errors: record and continue
-                print(f"[muse] query failed for idx={i} ({kind}): {exc}")
+                n_fail += 1
+                if n_fail <= 3:
+                    print(f"[muse] query failed for idx={i} ({kind}): {exc}")
                 continue
             if len(df):
                 df.insert(0, "idx", i)
                 df.insert(1, "kind", kind)
                 rows.append(df)
             time.sleep(sleep)
-    if not rows:
-        return pd.DataFrame(columns=["idx", "kind"])
-    return pd.concat(rows, ignore_index=True)
+    out = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=["idx", "kind"])
+    out.attrs["n_failed_queries"] = n_fail
+    if n_fail:
+        print(f"[muse] {n_fail} queries failed (network or ADQL); coverage is incomplete")
+    return out
 
 
 def summarize_coverage(sample, hits, cfg_muse):

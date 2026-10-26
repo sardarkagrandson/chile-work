@@ -35,6 +35,14 @@ scripts/validate_tw_mock.py              # recover a known Omega_p from a synthe
 All thresholds live in `config/selection.yaml`. Each script prints its
 selection funnel so the numbers can go straight into the paper/proposal.
 
+## Notebook
+
+`notebooks/01_vetting_muse_geometry.ipynb` walks through the next steps
+interactively: candidate overview, visual vetting on Legacy Surveys cutouts
+(classifications saved to `products/vetting.csv`), the ESO archive query,
+optional Galaxy Zoo DESI bars, disc/bar geometry with TW suitability, and a
+TW demo on a synthetic disc. Sections 2-5 need internet access.
+
 ## Quick start
 
 ```bash
@@ -68,6 +76,7 @@ python scripts/01_select_desi_sf_dwarfs.py && python scripts/02_crossmatch_bars.
 ```
 bartw/        python package (desi, morphology, bar_catalog, muse, photometry, geometry, kinematics, tw, mock, plotting)
 scripts/      numbered pipeline steps
+notebooks/    interactive companion (vetting, MUSE query, geometry)
 config/       selection.yaml
 docs/         plan, selection, method, literature, data access, meeting notes
 tests/        pytest suite

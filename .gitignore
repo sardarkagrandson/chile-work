@@ -21,3 +21,4 @@ figures/*.png
 
 # small, human-readable products are tracked
 !products/
+products/vetting.csv
