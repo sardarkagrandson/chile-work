@@ -53,7 +53,9 @@ if len(sel):
         tid = int(sel.TARGETID.iloc[i])
         print(f"{tid}: {len(grp)} cube(s)")
         for _, h in grp.sort_values("t_exptime", ascending=False).iterrows():
-            print(f"   {h.dp_id}  {h.t_exptime:.0f} s  {h.get('proposal_id', '')}  released {str(h.get('obs_release_date', ''))[:10]}")
+            fov = f"  FoV {60 * float(h.s_fov):.0f}\"" if "s_fov" in h and np.isfinite(float(h.s_fov)) else ""
+            print(f"   {h.dp_id}  {h.t_exptime:.0f} s  {h.get('proposal_id', '')}  released {str(h.get('obs_release_date', ''))[:10]}"
+                  f"  pointing offset from nucleus {h.sep_arcsec:.1f}\"{fov}  ({h.get('target_name', '')})")
             dp_ids.append(str(h.dp_id))
 
 if not dp_ids:
