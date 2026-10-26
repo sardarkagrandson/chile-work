@@ -25,10 +25,23 @@ ap.add_argument("--target-sn", type=float, default=40.0)
 ap.add_argument("--snr-min", type=float, default=1.0)
 ap.add_argument("--lam-range", type=float, nargs=2, default=(4750.0, 7000.0))
 ap.add_argument("--degree", type=int, default=12)
+ap.add_argument("--targetid", type=int, help="look up the nucleus position in products/ and read only a region around it")
+ap.add_argument("--ra", type=float); ap.add_argument("--dec", type=float)
+ap.add_argument("--half-size", type=float, default=45.0, help="half side of the region read around the nucleus [arcsec]")
 args = ap.parse_args()
+center = None
+if args.targetid is not None:
+    from bartw.lookup import lookup_target
+    g = lookup_target(args.targetid); args.ra, args.dec = g["RA"], g["DEC"]
+    if "A_BAR_ARCSEC" in g:
+        args.half_size = max(args.half_size, 1.6 * g["A_BAR_ARCSEC"] + 10)
+if args.ra is not None and args.dec is not None:
+    center = (args.ra, args.dec)
+    print(f"reading a {2 * args.half_size:.0f}\" region around RA={args.ra:.5f} Dec={args.dec:.5f}")
 
 t0 = time.time()
-cube = read_muse_cube(args.cube, lam_range=(args.lam_range[0] - 50, args.lam_range[1] + 50))
+cube = read_muse_cube(args.cube, lam_range=(args.lam_range[0] - 50, args.lam_range[1] + 50),
+                      center=center, half_size_arcsec=args.half_size if center else None)
 print(f"cube {cube.data.shape} read in {time.time() - t0:.0f} s; {cube.lam[0]:.0f}-{cube.lam[-1]:.0f} A, pixscale {cube.pixscale:.3f}\"")
 sig, noise = white_light(cube)
 bins = voronoi_bins(sig, noise, args.target_sn, args.snr_min)

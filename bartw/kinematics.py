@@ -41,13 +41,17 @@ class Cube:
     wcs: "WCS | None" = None
 
 
-def read_muse_cube(path, lam_range=None):
+def read_muse_cube(path, lam_range=None, center=None, half_size_arcsec=None):
     """Read a MUSE DATACUBE_FINAL (ESO Phase 3: DATA and STAT extensions).
-    ``lam_range`` (Angstrom) restricts the wavelength axis at read time to
-    save memory (a full cube is ~3 GB per extension)."""
+
+    ``lam_range`` (Angstrom) restricts the wavelength axis at read time;
+    ``center=(ra, dec)`` with ``half_size_arcsec`` reads only a square
+    spatial region around that position (essential for mosaics: a 14 GB
+    AMUSING mosaic becomes ~1 GB). The returned header/WCS are updated so
+    that pixel coordinates refer to the cutout."""
     with fits.open(path, memmap=True) as h:
         hdu = h["DATA"] if "DATA" in h else h[1]
-        hdr = hdu.header
+        hdr = hdu.header.copy()
         n = hdr["NAXIS3"]
         step = hdr.get("CD3_3", hdr.get("CDELT3"))
         lam = hdr["CRVAL3"] + (np.arange(n) + 1 - hdr["CRPIX3"]) * step
@@ -55,14 +59,30 @@ def read_muse_cube(path, lam_range=None):
         if lam_range is not None:
             idx = np.where((lam >= lam_range[0]) & (lam <= lam_range[1]))[0]
             s = slice(idx[0], idx[-1] + 1)
-        data = np.asarray(hdu.data[s], dtype=np.float32)
-        var = np.asarray(h["STAT"].data[s], dtype=np.float32) if "STAT" in h else None
-        lam = lam[s]
         pixscale = abs(hdr.get("CD2_2", hdr.get("CDELT2", 0.2 / 3600))) * 3600.0
         try:
             wcs = WCS(hdr).celestial
         except Exception:
             wcs = None
+        ys, xs = slice(None), slice(None)
+        if center is not None and half_size_arcsec is not None:
+            if wcs is None:
+                raise ValueError("cube has no celestial WCS; cannot cut out around a sky position")
+            x0, y0 = wcs.all_world2pix(center[0], center[1], 0)
+            hp = int(round(half_size_arcsec / pixscale))
+            ny, nx = hdr["NAXIS2"], hdr["NAXIS1"]
+            xa, xb = max(int(round(x0)) - hp, 0), min(int(round(x0)) + hp + 1, nx)
+            ya, yb = max(int(round(y0)) - hp, 0), min(int(round(y0)) + hp + 1, ny)
+            if xb <= xa or yb <= ya:
+                raise ValueError("requested centre lies outside the cube")
+            ys, xs = slice(ya, yb), slice(xa, xb)
+            hdr["CRPIX1"] = hdr["CRPIX1"] - xa
+            hdr["CRPIX2"] = hdr["CRPIX2"] - ya
+            hdr["NAXIS1"], hdr["NAXIS2"] = xb - xa, yb - ya
+            wcs = WCS(hdr).celestial
+        data = np.asarray(hdu.data[s, ys, xs], dtype=np.float32)
+        var = np.asarray(h["STAT"].data[s, ys, xs], dtype=np.float32) if "STAT" in h else None
+        lam = lam[s]
     return Cube(data, var, lam, hdr, pixscale, wcs)
 
 

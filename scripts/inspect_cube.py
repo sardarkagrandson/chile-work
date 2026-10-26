@@ -21,20 +21,37 @@ from matplotlib.patches import Ellipse
 from bartw.kinematics import read_muse_cube, sky_to_pixel, white_light
 
 ap = argparse.ArgumentParser()
-ap.add_argument("cube"); ap.add_argument("--ra", type=float, required=True); ap.add_argument("--dec", type=float, required=True)
+ap.add_argument("cube")
+ap.add_argument("--targetid", type=int, help="look up RA/Dec and geometry in products/ (alternative to --ra/--dec)")
+ap.add_argument("--ra", type=float); ap.add_argument("--dec", type=float)
 ap.add_argument("--pa-bar", type=float); ap.add_argument("--a-bar", type=float, help="arcsec"); ap.add_argument("--eps-bar", type=float, default=0.6)
 ap.add_argument("--pa-disc", type=float); ap.add_argument("--r-disc", type=float, help="arcsec"); ap.add_argument("--eps-disc", type=float, default=0.3)
 ap.add_argument("--out", default=None)
 args = ap.parse_args()
+if args.targetid is not None:
+    from bartw.lookup import lookup_target
+    g = lookup_target(args.targetid)
+    args.ra, args.dec = g["RA"], g["DEC"]
+    for a, k in (("pa_bar", "PA_BAR"), ("a_bar", "A_BAR_ARCSEC"), ("eps_bar", "EPS_BAR"), ("pa_disc", "PA_DISC"), ("eps_disc", "EPS_DISC")):
+        if getattr(args, a) is None or k in ("EPS_BAR", "EPS_DISC") and k in g:
+            setattr(args, a, g.get(k, getattr(args, a)))
+    if args.r_disc is None and "A_BAR_ARCSEC" in g:
+        args.r_disc = 3.0 * g["A_BAR_ARCSEC"]
+    print(f"TARGETID {args.targetid}: RA={args.ra:.5f} Dec={args.dec:.5f}; geometry from products/: "
+          f"PA_disc={args.pa_disc}, PA_bar={args.pa_bar}, a_bar={args.a_bar}")
+if args.ra is None or args.dec is None:
+    raise SystemExit("give --targetid or --ra/--dec")
 
-cube = read_muse_cube(args.cube, lam_range=(4800.0, 5500.0))
+half = 1.5 * (args.a_bar or 20.0) + 20.0
+cube = read_muse_cube(args.cube, lam_range=(4800.0, 5500.0), center=(args.ra, args.dec), half_size_arcsec=max(half, 45.0))
 sig, noise = white_light(cube)
 ny, nx = sig.shape
 x0, y0 = sky_to_pixel(cube, args.ra, args.dec)
 pix = cube.pixscale
 inside = 0 <= x0 < nx and 0 <= y0 < ny
 cx, cy = (nx - 1) / 2, (ny - 1) / 2
-print(f"field {nx}x{ny} pix = {nx * pix:.0f}\" x {ny * pix:.0f}\", pixscale {pix:.3f}\"")
+print(f"region read around the nucleus: {nx}x{ny} pix = {nx * pix:.0f}\" x {ny * pix:.0f}\", pixscale {pix:.3f}\" "
+      f"(full cube {cube.header.get('NAXIS1')}x{cube.header.get('NAXIS2')} after cut)")
 print(f"nucleus at pixel x0={x0:.1f}, y0={y0:.1f}  ({'inside' if inside else 'OUTSIDE'} the field); "
       f"offset from field centre {np.hypot(x0 - cx, y0 - cy) * pix:.1f}\"")
 snr_nuc = sig[int(round(y0)), int(round(x0))] / noise[int(round(y0)), int(round(x0))] if inside else np.nan

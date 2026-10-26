@@ -63,3 +63,15 @@ def test_cube_pipeline_recovers_velocity_field(tmp_path):
     assert np.nanmedian(np.abs(resid)) < 20.0
     # rotation sense: receding side has larger V
     assert np.nanmean(maps["v_map"][:, 20:]) > np.nanmean(maps["v_map"][:, :10])
+
+
+def test_spatial_cutout_updates_wcs(tmp_path):
+    path = tmp_path / "cube.fits"
+    _make_cube(path)
+    full = read_muse_cube(path, lam_range=(4800, 5500))
+    ra, dec = full.wcs.all_pix2world(20.0, 18.0, 0)
+    cut = read_muse_cube(path, lam_range=(4800, 5500), center=(float(ra), float(dec)), half_size_arcsec=1.0)
+    assert cut.data.shape[1:] == (11, 11)
+    x, y = cut.wcs.all_world2pix(ra, dec, 0)
+    assert abs(x - 5) < 1e-6 and abs(y - 5) < 1e-6
+    np.testing.assert_allclose(cut.data[:, 5, 5], full.data[:, 18, 20])

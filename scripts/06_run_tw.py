@@ -27,12 +27,13 @@ from bartw.tw import default_slit_centers, measure_pattern_speed, rotation_rate
 ap = argparse.ArgumentParser()
 ap.add_argument("kin")
 ap.add_argument("--name", required=True)
-ap.add_argument("--pa", type=float, required=True); ap.add_argument("--pa-err", type=float, default=None)
-ap.add_argument("--incl", type=float, required=True)
-ap.add_argument("--bar-pa", type=float, required=True)
-ap.add_argument("--a-bar", type=float, required=True, help="sky-plane bar semi-major axis [arcsec]")
+ap.add_argument("--targetid", type=int, help="fill PA, inclination, bar PA/length and the nucleus pixel from products/ and the map WCS")
+ap.add_argument("--pa", type=float); ap.add_argument("--pa-err", type=float, default=None)
+ap.add_argument("--incl", type=float)
+ap.add_argument("--bar-pa", type=float)
+ap.add_argument("--a-bar", type=float, help="sky-plane bar semi-major axis [arcsec]")
 ap.add_argument("--a-bar-err", type=float, default=None)
-ap.add_argument("--distance", type=float, required=True)
+ap.add_argument("--distance", type=float, help="Mpc (default: from the catalogue redshift)")
 ap.add_argument("--x0", type=float, default=None); ap.add_argument("--y0", type=float, default=None)
 ap.add_argument("--pixscale", type=float, default=0.2)
 ap.add_argument("--vc", type=float, default=None); ap.add_argument("--vc-err", type=float, default=None)
@@ -44,7 +45,31 @@ cfg = load_config(args.config)["tw"]
 with fits.open(args.kin) as h:
     flux, vel = h["FLUX"].data.astype(float), h["V"].data.astype(float)
     verr = h["V_ERR"].data.astype(float) if "V_ERR" in h else None
+    hdr = h["V"].header
 ny, nx = flux.shape
+if args.targetid is not None:
+    from astropy.wcs import WCS
+    from bartw.lookup import lookup_target
+    g = lookup_target(args.targetid)
+    defaults = dict(pa="PA_DISC", pa_err="PA_DISC_ERR", incl="INCL_GEOM", bar_pa="PA_BAR", a_bar="A_BAR_ARCSEC", a_bar_err="A_BAR_ERR_ARCSEC")
+    for a, k in defaults.items():
+        if getattr(args, a) is None and k in g:
+            setattr(args, a, g[k])
+    if args.incl is None and "INCL_DEG" in g:
+        args.incl = g["INCL_DEG"]
+    if args.distance is None and "KPC_PER_ARCSEC" in g:
+        args.distance = g["KPC_PER_ARCSEC"] * 206.2648        # Mpc, Hubble flow from the DESI redshift
+    if args.x0 is None or args.y0 is None:
+        try:
+            x0w, y0w = WCS(hdr).celestial.all_world2pix(g["RA"], g["DEC"], 0)
+            args.x0, args.y0 = float(x0w), float(y0w)
+        except Exception as exc:
+            print("could not place the nucleus from the WCS:", exc)
+    print(f"TARGETID {args.targetid}: PA={args.pa}, PA_err={args.pa_err}, incl={args.incl}, bar PA={args.bar_pa}, "
+          f"a_bar={args.a_bar}\", D={args.distance:.1f} Mpc, nucleus pixel ({args.x0:.1f}, {args.y0:.1f})")
+for a in ("pa", "incl", "bar_pa", "a_bar", "distance"):
+    if getattr(args, a) is None:
+        raise SystemExit(f"--{a.replace('_', '-')} is required (or give --targetid with a measured geometry)")
 x0 = (nx - 1) / 2 if args.x0 is None else args.x0
 y0 = (ny - 1) / 2 if args.y0 is None else args.y0
 pa_err = cfg["pa_error_deg"] if args.pa_err is None else args.pa_err
