@@ -47,3 +47,15 @@ def test_no_bar_in_pure_disc():
     res = measure_geometry(img, p2.pixscale, 18.0)
     assert np.isnan(res["a_bar"])
     assert "bar" in res["status"] or res["status"] == "ok" and np.isnan(res["pa_bar"])
+
+
+def test_auto_size_mode_recovers_bar():
+    """Without a catalogue R25 the size comes from the image itself."""
+    img, p, t = _image()
+    res = measure_geometry(img, p.pixscale, None)
+    assert res["size_mode"].startswith("auto")
+    assert res["status"] == "ok", res["status"]
+    assert pa_difference(res["pa_disc"], p.pa_deg) < 6.0
+    assert pa_difference(res["pa_bar"], t["bar_pa_sky"]) < 10.0
+    assert 0.6 * t["a_bar_sky_arcsec"] < res["a_bar"] < 1.4 * t["a_bar_sky_arcsec"]
+    assert not res["edge_limited"]

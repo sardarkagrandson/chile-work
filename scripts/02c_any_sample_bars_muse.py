@@ -87,6 +87,18 @@ for c in ("shape_e1", "shape_e2", "shape_r", "sga_id", "ba", "pa", "sma_sb25", "
         s[c] = df[col].to_numpy()
 ok = np.isfinite(s.RA) & np.isfinite(s.DEC) & np.isfinite(s.Z) & (s.Z > 0)
 s = s[ok].reset_index(drop=True)
+# several DESI targets can sit on the same galaxy (main + secondary programmes): keep one per 2" position
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+_c = SkyCoord(s.RA.to_numpy() * u.deg, s.DEC.to_numpy() * u.deg)
+_i, _j, _, _ = _c.search_around_sky(_c, 2 * u.arcsec)
+_dup = np.zeros(len(s), bool)
+for a, b in zip(_i, _j):
+    if a < b:
+        _dup[b] = True            # keep the first occurrence
+n_dup = int(_dup.sum())
+s = s[~_dup].reset_index(drop=True)
+print(f"  duplicate targets on the same galaxy removed: {n_dup}")
 s["CZ_KMS"] = 299792.458 * s.Z
 s["KPC_PER_ARCSEC"] = s.Z * 299792.458 / cfg["cosmology"]["H0"] * 1000 / 206264.8
 print(f"  with valid RA/Dec/z: {len(s)};  cz range {s.CZ_KMS.min():.0f}-{s.CZ_KMS.max():.0f} km/s")

@@ -88,16 +88,26 @@ def isophote_profiles(img, x0=None, y0=None, sma0=None, maxsma=None, step=0.1, f
     # sigma-clip deviant pixels along each ellipse (foreground stars, HII knots);
     # without this a single star on the first isophote aborts the whole fit.
     # If the first isophote still fails, retry from other starting radii.
+    # The first isophote must lie in the smooth, disc-dominated part of the
+    # galaxy: starting inside a strong bar (or on a clump) makes the harmonic
+    # fit fail and photutils then gives up entirely. So start well outside and
+    # let the fit grow inwards and outwards; fall back to smaller radii and,
+    # last, to no clipping.
     iso = None
-    for s0 in [sma0, 0.5 * sma0, 2.0 * sma0, 4.0]:
-        geom = EllipseGeometry(x0=x0, y0=y0, sma=s0, eps=eps0, pa=np.radians((pa0_deg + 90.0) % 180.0),
-                               fix_center=fix_center)
-        ell = Ellipse(data, geometry=geom)
-        try:
-            iso = ell.fit_image(sma0=s0, minsma=1.0, maxsma=maxsma, step=step, linear=False,
-                                fflag=0.5, maxgerr=0.5, sclip=2.5, nclip=3)
-        except Exception:
-            iso = None
+    starts = [0.4 * maxsma, 0.25 * maxsma, 0.15 * maxsma, sma0, 2.0 * sma0, 0.5 * sma0]
+    for clip in (dict(sclip=2.5, nclip=3), dict(nclip=0)):
+        for s0 in starts:
+            if s0 < 2.0:
+                continue
+            geom = EllipseGeometry(x0=x0, y0=y0, sma=s0, eps=eps0, pa=np.radians((pa0_deg + 90.0) % 180.0),
+                                   fix_center=fix_center)
+            try:
+                iso = Ellipse(data, geometry=geom).fit_image(sma0=s0, minsma=1.0, maxsma=maxsma, step=step,
+                                                             linear=False, fflag=0.5, maxgerr=0.5, **clip)
+            except Exception:
+                iso = None
+            if iso is not None and len(iso) > 0:
+                break
         if iso is not None and len(iso) > 0:
             break
     if iso is None or len(iso) == 0:
@@ -199,29 +209,51 @@ def bar_geometry(prof, pa_disc, eps_disc, sma_min_pix=2.0, sma_max_pix=None, eps
     return out
 
 
-def measure_geometry(img, pixscale, r25_arcsec, psf_fwhm_arcsec=1.3, x0=None, y0=None):
+def measure_geometry(img, pixscale, r25_arcsec=None, psf_fwhm_arcsec=1.3, x0=None, y0=None,
+                     outer_frac=(0.5, 0.9), bar_frac=0.5):
     """Full disc + bar geometry from an image (sky-subtracted internally).
 
-    ``r25_arcsec`` sets the fitting range (to 1.5 R25), the disc window
-    (0.5-1.0 R25) and the bar search window (< 0.6 R25). Returns a dict with
-    the profile (``prof``) and the results in arcsec / degrees."""
+    If ``r25_arcsec`` is given it sets the fitting range (to 1.5 R25), the disc
+    window (0.5-1.0 R25) and the bar search window (< 0.6 R25). If it is None
+    or NaN the size is taken from the image itself: isophotes are fitted
+    outwards until they fall below the sky noise, and the last valid isophote
+    radius R_out defines the disc window (``outer_frac`` x R_out) and the bar
+    window (< ``bar_frac`` x R_out). ``r_out_pix`` and ``size_mode`` are
+    reported; if R_out reaches ~0.9 of the image half-size, refetch a larger
+    cutout (``edge_limited`` is True)."""
     res = dict(NAN_RESULT)
-    if not np.isfinite(r25_arcsec) or r25_arcsec <= 0:
-        r25_arcsec = 0.15 * min(img.shape) * pixscale
-    r25 = r25_arcsec / pixscale
-    prof = isophote_profiles(img, x0, y0, sma0=max(3.0, 0.15 * r25), maxsma=1.5 * r25)
+    ny, nx = img.shape
+    half = 0.5 * min(nx, ny)
+    auto = r25_arcsec is None or not np.isfinite(r25_arcsec) or r25_arcsec <= 0
+    if auto:
+        prof = isophote_profiles(img, x0, y0, sma0=max(3.0, 0.05 * half), maxsma=0.95 * half)
+        res["size_mode"] = "auto (sky-limited)"
+    else:
+        r25 = r25_arcsec / pixscale
+        prof = isophote_profiles(img, x0, y0, sma0=max(3.0, 0.15 * r25), maxsma=1.5 * r25)
+        res["size_mode"] = "R25 from catalogue"
     res["prof"] = prof
-    res["r25_pix"] = r25
     if prof["sma"].size < 5:
         res["status"] = "isophote fit failed"
+        res.update(r25_pix=np.nan, r_out_pix=np.nan, edge_limited=False)
         return res
-    pa_d, pa_d_err, eps_d, eps_d_err, n_d = disc_geometry(prof, 0.5 * r25, 1.0 * r25)
+    r_out = float(prof["sma"].max())
+    res["r_out_pix"] = r_out
+    res["edge_limited"] = bool(r_out >= 0.85 * half)
+    if auto:
+        lo, hi = outer_frac[0] * r_out, outer_frac[1] * r_out
+        bar_max = bar_frac * r_out
+        res["r25_pix"] = hi
+    else:
+        lo, hi, bar_max = 0.5 * r25, 1.0 * r25, 0.6 * r25
+        res["r25_pix"] = r25
+    pa_d, pa_d_err, eps_d, eps_d_err, n_d = disc_geometry(prof, lo, hi)
     res.update(pa_disc=pa_d, pa_disc_err=pa_d_err, eps_disc=eps_d, eps_disc_err=eps_d_err, n_disc_iso=n_d)
     if n_d < 3:
-        res["status"] = "disc not measured (too few isophotes in 0.5-1 R25)"
+        res["status"] = "disc not measured (too few isophotes in the outer window)"
         return res
     bar = bar_geometry(prof, pa_d, eps_d, sma_min_pix=1.5 * psf_fwhm_arcsec / pixscale,
-                       sma_max_pix=0.6 * r25, min_a_peak_pix=2.0 * psf_fwhm_arcsec / pixscale)
+                       sma_max_pix=bar_max, min_a_peak_pix=2.0 * psf_fwhm_arcsec / pixscale)
     for k in ("a_bar", "a_bar_err", "a_peak", "a_bar_eps", "a_bar_pa"):
         bar[k] = bar[k] * pixscale if np.isfinite(bar[k]) else np.nan
     res.update(bar)
@@ -260,6 +292,7 @@ def plot_geometry(img, res, pixscale, title="", axes=None):
     if np.isfinite(res["pa_bar"]):
         axes[2].axhline(res["pa_bar"], color="C2")
     axes[2].set_xlabel("sma [arcsec]"); axes[2].set_ylabel("PA [deg]"); axes[2].set_ylim(0, 180)
+    lo = (0.5 if res.get("size_mode", "").startswith("R25") else 0.5 / 0.9) * res["r25_pix"] * pixscale
     for ax in axes[1:]:
-        ax.axvspan(0.5 * res["r25_pix"] * pixscale, res["r25_pix"] * pixscale, color="0.92", zorder=0)
+        ax.axvspan(lo, res["r25_pix"] * pixscale, color="0.92", zorder=0)
     return axes
