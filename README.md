@@ -29,6 +29,8 @@ scripts/03_query_muse.py                 # ESO TAP: MUSE cubes / raw frames   ->
 scripts/02c_any_sample_bars_muse.py TBL  # route 2 with any DESI table (e.g. 200<cz<10300 km/s, no cuts): bars + MUSE, dwarfs by mass -> products/<name>_barred_muse_candidates.csv
 scripts/02b_bar_catalog_muse.py          # route 2 without DESI: whole bar catalogue x MUSE, dwarfs by M_r, no SF requirement -> products/sga_barred_muse_candidates.csv
 scripts/04_measure_geometry.py           # LS cutouts: disc PA, i, bar PA, a_bar, TW suitability -> sample_geometry.csv
+scripts/download_muse_cubes.py --targetid ID   # ESO cubes -> data/raw/cubes/
+scripts/inspect_cube.py CUBE --ra --dec  # field coverage of the bar, nucleus pixel position
 scripts/05_stellar_kinematics.py CUBE    # Voronoi + pPXF stellar V maps      -> kin_<name>.fits
 scripts/06_run_tw.py KIN --pa .. --incl ..  # TW: Omega_p, V_sys, R_cr, R + figures -> tw_results.csv
 scripts/validate_tw_mock.py              # recover a known Omega_p from a synthetic barred disc
