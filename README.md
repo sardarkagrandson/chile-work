@@ -26,6 +26,7 @@ scripts/download_data.sh                 # FastSpecFit Iron (BGS), GZ DESI, SGA-
 scripts/01_select_desi_sf_dwarfs.py      # paper sample (or FastSpecFit cuts) + resolution tier -> data/interim/01_sf_dwarfs.parquet
 scripts/02_crossmatch_bars.py            # SGA bar catalogue + GZ DESI bars, priorities -> products/barred_dwarf_candidates.csv
 scripts/03_query_muse.py                 # ESO TAP: MUSE cubes / raw frames   -> data/products/sample_with_muse.csv
+scripts/02b_bar_catalog_muse.py          # route 2: whole bar catalogue x MUSE, dwarfs by M_r, no SF requirement -> products/sga_barred_muse_candidates.csv
 scripts/04_measure_geometry.py           # LS cutouts: disc PA, i, bar PA, a_bar, TW suitability -> sample_geometry.csv
 scripts/05_stellar_kinematics.py CUBE    # Voronoi + pPXF stellar V maps      -> kin_<name>.fits
 scripts/06_run_tw.py KIN --pa .. --incl ..  # TW: Omega_p, V_sys, R_cr, R + figures -> tw_results.csv
@@ -71,6 +72,11 @@ python scripts/01_select_desi_sf_dwarfs.py && python scripts/02_crossmatch_bars.
 * Steps 2b-4 (Galaxy Zoo DESI bars, ESO archive query, Legacy Surveys
   geometry) need network access the setup session did not have: run
   `scripts/download_data.sh`, then scripts 02-04 locally.
+* First archival result (26 Oct): 21 star-forming dwarfs at z < 0.012 have
+  MUSE data; the imaging finds one bar, aligned with the major axis, so zero
+  TW targets from the star-forming route. Next: z < 0.0333, all dwarfs
+  regardless of star formation (`scripts/02b_bar_catalog_muse.py`), and a
+  MUSE proposal list from the 40 priority candidates.
 * Open items for Virginia: ROSIE galaxy details; MUSE programmes to prioritise;
   bar catalogue definitions.
 
