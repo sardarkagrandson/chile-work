@@ -68,7 +68,7 @@ def read_muse_cube(path, lam_range=None, center=None, half_size_arcsec=None):
         if center is not None and half_size_arcsec is not None:
             if wcs is None:
                 raise ValueError("cube has no celestial WCS; cannot cut out around a sky position")
-            x0, y0 = wcs.all_world2pix(center[0], center[1], 0)
+            x0, y0 = (float(v) for v in wcs.all_world2pix(center[0], center[1], 0))
             hp = int(round(half_size_arcsec / pixscale))
             ny, nx = hdr["NAXIS2"], hdr["NAXIS1"]
             xa, xb = max(int(round(x0)) - hp, 0), min(int(round(x0)) + hp + 1, nx)
