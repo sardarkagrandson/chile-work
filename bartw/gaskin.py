@@ -112,3 +112,111 @@ def circular_velocity(rc, r_min_arcsec, r_max_arcsec=None):
     vc = np.sum(w * v) / np.sum(w)
     err = np.sqrt(1 / np.sum(w) + (np.std(v) ** 2 / max(s.sum(), 1)))
     return float(vc), float(max(err, 0.05 * abs(vc))), int(s.sum())
+
+
+# --------------------------------------------------------------------------- #
+# proper line fitting on the stellar Voronoi bins
+# --------------------------------------------------------------------------- #
+NII_A, NII_B = 6548.05, 6583.45
+
+
+def _gauss(lam, lc, sig):
+    return np.exp(-0.5 * ((lam - lc) / sig) ** 2)
+
+
+def fit_halpha_bins(cube, bin_num, z, v_star=None, half_window=45.0, min_snr=3.0, progress=True,
+                    v_grid_step=4.0, v_half_range=500.0, sig_em_grid=(1.3, 1.8, 2.5, 3.5), sig_abs_grid=(5.0, 8.0, 12.0)):
+    """Fit Halpha + [NII]6548,6584 emission plus a broad Halpha absorption on the
+    spectra summed in Voronoi bins, by a grid search in velocity with a linear
+    least-squares solve for the amplitudes at each grid point (fast and never
+    fails to converge).
+
+    Model: c0 + c1 (l - l0) + A_Ha G(l; l_Ha(v), s_em) + A_N2 [G(l; l_6584(v), s_em) + G(l; l_6548(v), s_em)/3]
+           - A_abs G(l; l_Ha(v_abs), s_abs)
+    The absorption centre is the per-bin stellar velocity ``v_star`` when given
+    (else cz); s_em and s_abs run over small grids. Velocity error from the
+    delta chi^2 = 1 width of the chi^2(v) curve, scaled by sqrt(chi2_red).
+    """
+    from .kinematics import stack_bins
+    lc0 = HALPHA * (1 + z)
+    lam, spectra, variances = stack_bins(cube, bin_num, (lc0 - half_window, lc0 + half_window))
+    nb = spectra.shape[1]
+    v0 = C_KMS * z
+    vgrid = np.arange(v0 - v_half_range, v0 + v_half_range + v_grid_step, v_grid_step)
+    V = np.full(nb, np.nan); dV = V.copy(); S = V.copy(); F = V.copy(); SNR = V.copy(); EWabs = V.copy()
+    x = lam - lc0
+    for b in range(nb):
+        y = spectra[:, b]
+        ok = np.isfinite(y)
+        if ok.sum() < 20:
+            continue
+        yy = y[ok]; xx = x[ok]; lam_ok = lam[ok]
+        var = variances[ok, b]
+        err = np.sqrt(var) if np.isfinite(var).all() and (var > 0).all() else np.full_like(yy, max(np.std(np.diff(yy)) / np.sqrt(2), 1e-6))
+        w = 1.0 / err
+        vabs = v_star[b] if (v_star is not None and np.isfinite(v_star[b])) else v0
+        best = (np.inf, None)
+        for s_abs in sig_abs_grid:
+            labs = HALPHA * (1 + vabs / C_KMS)
+            g_abs = -_gauss(lam_ok, labs, s_abs)
+            for s_em in sig_em_grid:
+                # design matrices for all velocities at once: (nv, npix, 5)
+                lha = HALPHA * (1 + vgrid / C_KMS)[:, None]
+                l1 = NII_A * (1 + vgrid / C_KMS)[:, None]
+                l2 = NII_B * (1 + vgrid / C_KMS)[:, None]
+                g_ha = _gauss(lam_ok[None, :], lha, s_em)
+                g_n2 = _gauss(lam_ok[None, :], l2, s_em) + _gauss(lam_ok[None, :], l1, s_em) / 3.0
+                nv = vgrid.size
+                A = np.empty((nv, yy.size, 5))
+                A[:, :, 0] = 1.0; A[:, :, 1] = xx[None, :]; A[:, :, 2] = g_ha; A[:, :, 3] = g_n2; A[:, :, 4] = g_abs[None, :]
+                Aw = A * w[None, :, None]
+                yw = (yy * w)[None, :]
+                # normal equations, batched
+                AtA = np.einsum("vpi,vpj->vij", Aw, Aw)
+                Aty = np.einsum("vpi,vp->vi", Aw, yw)
+                try:
+                    coef = np.linalg.solve(AtA, Aty[..., None])[..., 0]
+                except np.linalg.LinAlgError:
+                    continue
+                resid = yw - np.einsum("vpi,vi->vp", Aw, coef)
+                chi2 = np.sum(resid**2, axis=1)
+                k = int(np.argmin(chi2))
+                if chi2[k] < best[0]:
+                    best = (chi2[k], (k, coef[k], chi2, s_em, s_abs, AtA[k]))
+        if best[1] is None:
+            continue
+        k, coef, chi2, s_em, s_abs, AtA_k = best[1]
+        dof = max(yy.size - 6, 1)
+        chi2r = best[0] / dof
+        # amplitude error from the normal matrix
+        try:
+            cov = np.linalg.inv(AtA_k) * max(chi2r, 1.0)
+            a_err = np.sqrt(max(cov[2, 2], 0))
+        except np.linalg.LinAlgError:
+            a_err = np.inf
+        a_ha = coef[2]
+        if a_ha <= 0 or a_ha / a_err < min_snr:
+            continue
+        # velocity error: parabola through the chi2 minimum (delta chi2 = 1), scaled by chi2_red
+        km, kp = max(k - 1, 0), min(k + 1, vgrid.size - 1)
+        curv = (chi2[km] - 2 * chi2[k] + chi2[kp]) / v_grid_step**2 if kp > km else np.nan
+        verr = np.sqrt(2.0 / curv) if np.isfinite(curv) and curv > 0 else v_grid_step
+        vbest = vgrid[k]
+        if kp > km and curv > 0:
+            vbest = vgrid[k] + 0.5 * v_grid_step * (chi2[km] - chi2[kp]) / (chi2[km] - 2 * chi2[k] + chi2[kp])
+        V[b], dV[b] = vbest, verr * np.sqrt(max(chi2r, 1.0))
+        S[b] = C_KMS * np.sqrt(max(s_em**2 - (2.6 / 2.355) ** 2, 0.0)) / HALPHA
+        F[b] = a_ha * s_em * np.sqrt(2 * np.pi)
+        SNR[b] = a_ha / a_err
+        EWabs[b] = coef[4] * s_abs * np.sqrt(2 * np.pi) / max(coef[0], 1e-9)
+        if progress and (b + 1) % 500 == 0:
+            print(f"[gas] {b + 1}/{nb} bins")
+
+    def to_map(arr):
+        out = np.full(bin_num.shape, np.nan)
+        okb = bin_num >= 0
+        out[okb] = arr[bin_num[okb]]
+        return out
+
+    return dict(v=V, v_err=dV, sigma=S, flux=F, snr=SNR, ew_abs=EWabs,
+                v_map=to_map(V), v_err_map=to_map(dV), sigma_map=to_map(S), flux_map=to_map(F), snr_map=to_map(SNR))

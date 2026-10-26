@@ -32,7 +32,8 @@ ap.add_argument("--incl", type=float, default=None, help="inclination for the ro
 ap.add_argument("--pa", type=float, default=None, help="PA for the rotation curve (default: gas kinematic PA, outer annulus)")
 ap.add_argument("--snr-min", type=float, default=3.0)
 ap.add_argument("--half-size", type=float, default=60.0)
-ap.add_argument("--stars", default=None, help="stellar kinematics file (kin_NAME.fits) for the PA comparison")
+ap.add_argument("--stars", default=None, help="stellar kinematics file (kin_NAME.fits): its Voronoi bins and velocities are used "
+                                                "for the Halpha+[NII]+absorption profile fit (recommended); without it a crude per-spaxel moment map is made")
 args = ap.parse_args()
 cfg = load_config()
 g = lookup_target(args.targetid)
@@ -40,15 +41,42 @@ name = args.name or f"T{args.targetid}"
 z, a_bar = g["Z"], g.get("A_BAR_ARCSEC", 15.0)
 incl = args.incl if args.incl is not None else g.get("INCL_GEOM", g.get("INCL_DEG", 50.0))
 lc = 6562.8 * (1 + z)
-cube = read_muse_cube(args.cube, lam_range=(lc - 60, lc + 60), center=(g["RA"], g["DEC"]), half_size_arcsec=max(args.half_size, 1.6 * a_bar + 10))
+from bartw.gaskin import fit_halpha_bins
+if args.stars:
+    # read exactly the region of the stellar kinematics file so the Voronoi bins line up
+    with fits.open(args.stars) as h:
+        khdr = h["V"].header; vs_map = h["V"].data.astype(float); ves_map = h["V_ERR"].data.astype(float); bins = h["BINNUM"].data.astype(int)
+        from astropy.wcs import WCS
+        kw = WCS(khdr).celestial
+        ny_k, nx_k = vs_map.shape
+        ra_c, dec_c = (float(v) for v in kw.all_pix2world((nx_k - 1) / 2, (ny_k - 1) / 2, 0))
+    half_pix = (nx_k - 1) / 2
+    cube = read_muse_cube(args.cube, lam_range=(lc - 60, lc + 60), center=(ra_c, dec_c), half_size_arcsec=half_pix * 0.2)
+    if cube.data.shape[1:] != vs_map.shape:
+        raise SystemExit(f"cube region {cube.data.shape[1:]} does not match the kinematics grid {vs_map.shape}; "
+                         "run 05 and 07 with the same --half-size")
+    nb = bins.max() + 1
+    vstar = np.full(nb, np.nan)
+    okb = bins >= 0
+    vstar[bins[okb]] = vs_map[okb]
+    print(f"fitting Halpha+[NII]+absorption in {nb} Voronoi bins (absorption fixed at the stellar velocity) ...")
+    gfit = fit_halpha_bins(cube, bins, z, v_star=vstar)
+    m = dict(flux=gfit["flux_map"], vel=gfit["v_map"], vel_err=gfit["v_err_map"], snr=gfit["snr_map"], good=np.isfinite(gfit["v_map"]))
+    print(f"Halpha fitted in {np.isfinite(gfit['v']).sum()} of {nb} bins; median gas V {np.nanmedian(gfit['v']):.1f} km/s, "
+          f"median stellar V {np.nanmedian(vstar):.1f} km/s, median (gas - stars) {np.nanmedian(gfit['v'] - vstar):.1f} km/s; "
+          f"median absorption EW {np.nanmedian(gfit['ew_abs']):.1f} A; median gas sigma {np.nanmedian(gfit['sigma']):.0f} km/s")
+else:
+    cube = read_muse_cube(args.cube, lam_range=(lc - 60, lc + 60), center=(g["RA"], g["DEC"]), half_size_arcsec=max(args.half_size, 1.6 * a_bar + 10))
+    m = line_moments(cube, z, snr_min=args.snr_min)
+    print("WARNING: per-spaxel moment velocities are biased by the stellar Halpha absorption; give --stars for a proper fit")
+    print(f"Halpha detected (S/N >= {args.snr_min}) in {m['good'].sum()} of {np.isfinite(m['snr']).sum()} spaxels; "
+          f"median V {np.nanmedian(m['vel']):.1f} km/s (cz = {299792.458 * z:.0f})")
 x0, y0 = sky_to_pixel(cube, g["RA"], g["DEC"])
 pix = cube.pixscale
 east_left = cube.header.get("CD1_1", -1) < 0
-m = line_moments(cube, z, snr_min=args.snr_min)
-print(f"Halpha detected (S/N >= {args.snr_min}) in {m['good'].sum()} of {np.isfinite(m['snr']).sum()} spaxels; "
-      f"median V {np.nanmedian(m['vel']):.1f} km/s (cz = {299792.458 * z:.0f})")
 
-r_in, r_out = 1.2 * a_bar, min(3.0 * a_bar, 0.95 * args.half_size)
+half_field = 0.5 * min(cube.data.shape[1:]) * pix
+r_in, r_out = 1.2 * a_bar, min(3.0 * a_bar, 0.95 * half_field)
 kp_out = fit_kinematic_pa(m["vel"], x0, y0, east_left=east_left, radius_pix=r_out / pix, rmin_pix=r_in / pix, v_err=m["vel_err"])
 kp_in = fit_kinematic_pa(m["vel"], x0, y0, east_left=east_left, radius_pix=r_in / pix, v_err=m["vel_err"])
 kp_all = fit_kinematic_pa(m["vel"], x0, y0, east_left=east_left, radius_pix=r_out / pix, v_err=m["vel_err"])
@@ -58,17 +86,13 @@ print(f"gas kinematic PA: annulus {r_in:.0f}-{r_out:.0f}\": {kp_out['pa_kin']:.1
 if "PA_DISC" in g:
     print(f"photometric PA {g['PA_DISC']:.1f} +/- {g.get('PA_DISC_ERR', np.nan):.1f}: gas - phot = {pa_difference(kp_out['pa_kin'], g['PA_DISC']):.1f} deg")
 if args.stars:
-    with fits.open(args.stars) as h:
-        vs, ves = h["V"].data.astype(float), h["V_ERR"].data.astype(float)
-        from astropy.wcs import WCS
-        xs, ys = (float(v) for v in WCS(h["V"].header).celestial.all_world2pix(g["RA"], g["DEC"], 0))
-    ks = fit_kinematic_pa(vs, xs, ys, east_left=east_left, radius_pix=r_out / pix, rmin_pix=r_in / pix, v_err=ves)
+    ks = fit_kinematic_pa(vs_map, x0, y0, east_left=east_left, radius_pix=r_out / pix, rmin_pix=r_in / pix, v_err=ves_map)
     print(f"stellar kinematic PA (same annulus): {ks['pa_kin']:.1f} +/- {ks['pa_kin_err']:.1f}; gas - stars = {pa_difference(kp_out['pa_kin'], ks['pa_kin']):.1f} deg; "
           f"gas V_sys - stellar V_sys = {kp_out['v_sys'] - ks['v_sys']:.1f} km/s")
 
 pa_rc = args.pa if args.pa is not None else (kp_out["pa_kin"] if kp_out["detected"] else kp_all["pa_kin"])
 rc = rotation_curve(m["vel"], x0, y0, pa_rc, incl, kp_out["v_sys"], pix, east_left=east_left, weights=m["flux"], v_err=m["vel_err"],
-                    r_max_arcsec=0.95 * args.half_size)
+                    r_max_arcsec=0.95 * half_field)
 vc, vc_err, nr = circular_velocity(rc, r_min_arcsec=1.2 * a_bar)
 print(f"rotation curve along PA {pa_rc:.1f}, i = {incl:.1f}: V_c beyond 1.2 a_bar ({1.2 * a_bar:.0f}\") = {vc:.1f} +/- {vc_err:.1f} km/s from {nr} rings"
       f"  [i uncertain: V_c scales as 1/sin i]")

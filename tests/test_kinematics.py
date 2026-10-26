@@ -105,3 +105,31 @@ def test_gas_moments_and_rotation_curve(tmp_path):
     rc = rotation_curve(m["vel"], 14.5, 14.5, kp["pa_kin"], 60.0, C * 0.004, 0.2, east_left=True, dr_arcsec=0.4)
     vc, vc_err, n = circular_velocity(rc, r_min_arcsec=1.5)
     assert 45 < vc * np.sin(np.radians(60.0)) < 65 and n >= 2
+
+
+def test_fit_halpha_bins_recovers_gas_velocity(tmp_path):
+    """Emission on top of stellar absorption: the binned profile fit must not be biased."""
+    from bartw.gaskin import fit_halpha_bins
+    path = tmp_path / "cube.fits"
+    vel_true, flux, templates = _make_cube(path, z=0.004, vmax=60.0)
+    with fits.open(path, mode="update") as h:
+        data = h["DATA"].data
+        lam = 4750.0 + np.arange(data.shape[0]) * 1.25
+        ny, nx = data.shape[1:]
+        for j in range(3, ny):
+            for i in range(nx):
+                lc = 6562.8 * (1 + (vel_true[j, i] + 15.0) / C)      # gas offset by +15 km/s from the stars
+                data[:, j, i] += 6.0 * np.exp(-0.5 * ((lam - lc) / 2.0) ** 2)   # weak emission (EW ~ absorption EW)
+        h.flush()
+    cube = read_muse_cube(path)
+    sig, noise = white_light(cube)
+    bins = voronoi_bins(sig, noise, target_sn=30.0)
+    # per-bin stellar velocity = flux-weighted true velocity
+    nb = bins.max() + 1
+    vstar = np.array([np.average(vel_true[bins == b], weights=flux[bins == b]) for b in range(nb)])
+    g = fit_halpha_bins(cube, bins, 0.004, v_star=vstar, progress=False, sig_abs_grid=(3.0, 5.0, 8.0))  # mock absorption is 3 A wide
+    ok = np.isfinite(g["v"])
+    assert ok.sum() > 0.7 * nb
+    # recovers the +15 km/s gas offset to better than half its value even when the emission is as weak as the absorption
+    assert abs(np.nanmedian((g["v"] - vstar)[ok]) - 15.0) < 8.0
+    assert np.nanmedian(np.abs(g["v"] - vstar - 15.0)[ok]) < 10.0
