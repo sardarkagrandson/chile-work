@@ -23,3 +23,17 @@ Notes
 * Column names in `bartw/muse.py` follow the ESO TAP documentation; verify
   once with `--schema` and adjust the two query strings if ESO renamed
   anything.
+
+### Downloading cubes
+
+`scripts/download_muse_cubes.py --targetid <id> [...]` resolves the cubes
+around each galaxy from the cached ESO cube list and fetches them from
+`dataportal.eso.org/dataPortal/file/<dp_id>` into `data/raw/cubes/`. Public
+cubes need no login; for proprietary ones export `ESO_USER` / `ESO_PASSWORD`.
+A MUSE cube is 3-5 GB.
+
+### pPXF templates
+
+`scripts/05_stellar_kinematics.py` needs an SPS library in pPXF `.npz`
+format. Download `spectra_emiles_9.0.npz` (E-MILES, ~100 MB) from
+https://github.com/micappe/ppxf_data and pass its path with `--templates`.
