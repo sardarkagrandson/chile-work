@@ -48,6 +48,12 @@ MUSE-covered galaxies on Legacy Surveys cutouts (saved to
 geometry and TW suitability for the vetted galaxies; (6) a TW demo on a
 synthetic disc. Sections 2-5 need internet access. Works on Python >= 3.9.
 
+`notebooks/02_route2_candidates.ipynb` works on the output of
+`scripts/02c_any_sample_bars_muse.py`: cutouts, geometry and vetting of the
+priority candidates, an isophote sweep of all MUSE-covered dwarfs for bars
+the SGA catalogue cannot see, and the TW-ready list. Copy either notebook to
+a working name before running so `git pull` never conflicts.
+
 ## Quick start
 
 ```bash
