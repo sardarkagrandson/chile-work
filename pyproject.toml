@@ -7,11 +7,11 @@ name = "bartw"
 version = "0.1.0"
 description = "Bar pattern speeds of DESI star-forming dwarf galaxies with the Tremaine-Weinberg method"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 authors = [{ name = "Robin Thomas" }, { name = "Virginia Cuomo" }]
 dependencies = [
-  "numpy>=1.26", "scipy>=1.11", "astropy>=6.0", "astroquery>=0.4.7",
-  "pyvo>=1.5", "photutils>=1.12", "matplotlib>=3.8", "pandas>=2.1", "pyyaml>=6.0", "pyarrow>=15.0",
+  "numpy>=1.24", "scipy>=1.10", "astropy>=5.3", "astroquery>=0.4.6",
+  "pyvo>=1.4", "photutils>=1.8", "matplotlib>=3.7", "pandas>=2.0", "pyyaml>=6.0", "pyarrow>=12.0", "requests>=2.28", "pillow>=9.0",
 ]
 
 [project.optional-dependencies]

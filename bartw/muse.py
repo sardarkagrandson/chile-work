@@ -38,6 +38,86 @@ WHERE instrument = '{instrument}'
 """
 
 
+ALL_CUBES_QUERY = """
+SELECT target_name, s_ra, s_dec, s_fov, t_exptime, t_min, em_min, em_max,
+       obs_release_date, proposal_id, obs_collection, dp_id, dataproduct_type,
+       instrument_name, obs_id, access_url
+FROM ivoa.ObsCore
+WHERE instrument_name = '{instrument}' AND dataproduct_type = 'cube'
+"""
+
+ALL_RAW_QUERY = """
+SELECT object, ra, dec, exposure, date_obs, prog_id, dp_id, dp_cat, dp_tech,
+       ins_mode, release_date
+FROM dbo.raw
+WHERE instrument = '{instrument}' AND dp_cat = 'SCIENCE'
+"""
+
+
+def fetch_all_muse(cfg_muse, kind="cube", maxrec=2_000_000, cache_dir=None):
+    """Download the *whole* list of MUSE Phase-3 cubes (kind='cube') or raw
+    science frames (kind='raw') once, so that any number of targets can be
+    cross-matched locally. Tens of thousands of rows for cubes, a few
+    hundred thousand for raw frames. Cached as parquet in ``cache_dir``.
+    Falls back to an asynchronous TAP job if the synchronous query is
+    rejected for size."""
+    import pathlib
+    if cache_dir is not None:
+        cache = pathlib.Path(cache_dir) / f"eso_muse_all_{kind}.parquet"
+        if cache.exists():
+            df = pd.read_parquet(cache)
+            print(f"[muse] {len(df)} {kind} rows from cache {cache.name}")
+            return df
+    svc = _service(cfg_muse["tap_url"])
+    q = (ALL_CUBES_QUERY if kind == "cube" else ALL_RAW_QUERY).format(instrument=cfg_muse["instrument"])
+    try:
+        res = svc.search(q, maxrec=maxrec)
+    except Exception as exc:
+        print(f"[muse] sync query failed ({exc}); trying an async job")
+        job = svc.submit_job(q, maxrec=maxrec)
+        job.run().wait()
+        res = job.fetch_result()
+    df = res.to_table().to_pandas()
+    print(f"[muse] fetched {len(df)} MUSE {kind} rows from the ESO archive")
+    if cache_dir is not None:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(cache)
+    return df
+
+
+def crossmatch_local(ra, dec, products, kind, radius_arcmin):
+    """Match targets to a downloaded product table (from fetch_all_muse) on the
+    sky. Returns the same per-hit layout as query_muse (idx, kind, ...)."""
+    from astropy import units as u
+    from astropy.coordinates import SkyCoord
+    if len(products) == 0:
+        return pd.DataFrame(columns=["idx", "kind"])
+    rc, dc = ("s_ra", "s_dec") if kind == "cube" else ("ra", "dec")
+    ok = np.isfinite(products[rc].to_numpy(float)) & np.isfinite(products[dc].to_numpy(float))
+    prod = products[ok].reset_index(drop=True)
+    c_t = SkyCoord(np.atleast_1d(ra) * u.deg, np.atleast_1d(dec) * u.deg)
+    c_p = SkyCoord(prod[rc].to_numpy(float) * u.deg, prod[dc].to_numpy(float) * u.deg)
+    i_t, i_p, sep, _ = c_p.search_around_sky(c_t, radius_arcmin * u.arcmin)
+    hits = prod.iloc[i_p].reset_index(drop=True)
+    hits.insert(0, "idx", i_t)
+    hits.insert(1, "kind", kind)
+    hits["sep_arcsec"] = sep.arcsec
+    return hits
+
+
+def muse_coverage(ra, dec, cfg_muse, cache_dir=None, raw=None):
+    """Preferred entry point: download the MUSE product lists once and match
+    all targets locally. Returns the per-hit table (like query_muse)."""
+    include_raw = cfg_muse.get("include_raw", True) if raw is None else raw
+    r = cfg_muse["search_radius_arcmin"]
+    parts = [crossmatch_local(ra, dec, fetch_all_muse(cfg_muse, "cube", cache_dir=cache_dir), "cube", r)]
+    if include_raw:
+        parts.append(crossmatch_local(ra, dec, fetch_all_muse(cfg_muse, "raw", cache_dir=cache_dir), "raw", r))
+    out = pd.concat(parts, ignore_index=True)
+    out.attrs["n_failed_queries"] = 0
+    return out
+
+
 def _service(tap_url):
     import pyvo
     return pyvo.dal.TAPService(tap_url)

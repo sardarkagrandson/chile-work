@@ -13,11 +13,12 @@ import argparse
 import pandas as pd
 
 from bartw.config import data_dir, load_config
-from bartw.muse import print_schema, query_muse, summarize_coverage
+from bartw.muse import muse_coverage, print_schema, query_muse, summarize_coverage
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--input", default=str(data_dir("interim") / "02_barred_candidates.parquet"))
 ap.add_argument("--schema", action="store_true", help="print ivoa.ObsCore and dbo.raw columns and exit")
+ap.add_argument("--per-object", action="store_true", help="cone search per target instead of one bulk download + local match")
 ap.add_argument("--config", default=None)
 args = ap.parse_args()
 cfg = load_config(args.config)["muse"]
@@ -29,7 +30,12 @@ if args.schema:
 
 sample = pd.read_parquet(args.input)
 print(f"querying ESO archive for {len(sample)} galaxies ...")
-hits = query_muse(sample["RA"].to_numpy(), sample["DEC"].to_numpy(), cfg)
+if args.per_object:
+    hits = query_muse(sample["RA"].to_numpy(), sample["DEC"].to_numpy(), cfg)
+else:
+    hits = muse_coverage(sample["RA"].to_numpy(), sample["DEC"].to_numpy(), cfg, cache_dir=data_dir("raw"))
+if hits.attrs.get("n_failed_queries", 0) >= len(sample) and len(hits) == 0:
+    raise SystemExit("every ESO query failed (no network?); nothing written")
 hits.to_parquet(data_dir("interim") / "03_muse_hits.parquet")
 summary = summarize_coverage(sample, hits, cfg)
 n_cube = int((summary["N_MUSE_CUBES"] > 0).sum())

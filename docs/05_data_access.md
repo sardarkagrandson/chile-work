@@ -11,7 +11,7 @@ catalogues into `data/raw/`. Approximate sizes in brackets.
 | Siena Galaxy Atlas 2020, `SGA-2020.fits` [~1 GB] | https://portal.nersc.gov/project/cosmo/data/sga/2020/ | SGA_ID, PA, BA, D26, LEDA quantities |
 | DESI Legacy Imaging bar catalogue [7 MB] | from V. Cuomo (not public); copy to `data/raw/desi_legacy_bars_sga.fits` | SGA_ID, bar_length, bar_ellipticity |
 | Legacy Surveys cutouts | https://www.legacysurvey.org/viewer/fits-cutout?ra=..&dec=..&layer=ls-dr9&pixscale=0.262&size=512&bands=r | r-band images for isophote fitting (fetched on the fly by step 4) |
-| ESO archive (MUSE) | TAP https://archive.eso.org/tap_obs ; tables `ivoa.ObsCore` (Phase 3 cubes) and `dbo.raw` (raw frames); run `scripts/03_query_muse.py --schema` to print the live column names | cube list per galaxy; download of cubes needs an ESO account for proprietary data; public cubes via the `access_url` |
+| ESO archive (MUSE) | TAP https://archive.eso.org/tap_obs ; tables `ivoa.ObsCore` (Phase 3 cubes) and `dbo.raw` (raw frames); run `scripts/03_query_muse.py --schema` to print the live column names | `fetch_all_muse` downloads the full MUSE cube and raw-frame lists once (cached in `data/raw/eso_muse_all_*.parquet`) and `crossmatch_local` matches any number of targets; cube download needs an ESO account for proprietary data, public cubes via `access_url` |
 | pPXF templates | E-MILES in pPXF npz format, e.g. `spectra_emiles_9.0.npz` from https://github.com/micappe/ppxf_data | step 5 |
 | Distances | Cosmicflows-4 (Tully+2023) / NED-D for z < 0.01 targets | physical scale for Omega_p and a_bar |
 

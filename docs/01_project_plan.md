@@ -85,7 +85,7 @@ Questions we can answer with ~10-30 dwarfs:
 
 | When | Milestone |
 |------|-----------|
-| Oct-Nov 2026 | WP1-3: parent sample, barred candidates, MUSE coverage table; fix bar-catalogue definitions; ROSIE galaxy added |
+| Oct-Nov 2026 | WP1-3: parent sample, barred candidates, MUSE coverage of all resolvable dwarfs, visual vetting of the MUSE-covered ones; fix bar-catalogue definitions; ROSIE galaxy added |
 | Nov-Dec 2026 | WP4-5: geometry for all MUSE-covered candidates; kinematic maps for the first 3-5 cubes; TW on 1-2 test galaxies incl. a re-measurement of NGC 4516 as a benchmark against Cuomo+2024 |
 | Jan-Feb 2027 | WP6: TW for the full MUSE sample; V_c from stars and gas; first R vs mass plot = **preliminary results for funding applications** |
 | Mar-Apr 2027 | WP7-8: ROSIE galaxy; environment from DESI; comparison with the literature; draft paper |

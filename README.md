@@ -38,15 +38,18 @@ selection funnel so the numbers can go straight into the paper/proposal.
 ## Notebook
 
 `notebooks/01_vetting_muse_geometry.ipynb` walks through the next steps
-interactively: candidate overview, visual vetting on Legacy Surveys cutouts
-(classifications saved to `products/vetting.csv`), the ESO archive query,
-optional Galaxy Zoo DESI bars, disc/bar geometry with TW suitability, and a
-TW demo on a synthetic disc. Sections 2-5 need internet access.
+interactively, in the order that costs the least effort: (1) load the
+dwarfs and barred candidates; (2) download the ESO MUSE product lists once
+and match all 1,782 resolvable dwarfs locally; (3) visually vet only the
+MUSE-covered galaxies on Legacy Surveys cutouts (saved to
+`products/vetting.csv`); (4) optional Galaxy Zoo DESI bars; (5) disc/bar
+geometry and TW suitability for the vetted galaxies; (6) a TW demo on a
+synthetic disc. Sections 2-5 need internet access. Works on Python >= 3.9.
 
 ## Quick start
 
 ```bash
-pip install -e .            # or: pip install -r requirements.txt
+pip install -e .            # or: pip install -r requirements.txt  (Python >= 3.9)
 pytest                      # 16 tests: TW recovery on mocks, geometry, DESI selection logic
 python scripts/validate_tw_mock.py      # -> figures/tw_mock_validation.png
 cp DESI_dwarfs.csv data/raw/DESI_dwarfs_paper_sample.csv   # paper sample (not in git)
