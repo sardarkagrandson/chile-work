@@ -18,7 +18,7 @@ from bartw.kinematics import fit_bins, read_muse_cube, save_maps, voronoi_bins, 
 
 ap = argparse.ArgumentParser()
 ap.add_argument("cube")
-ap.add_argument("--z", type=float, required=True)
+ap.add_argument("--z", type=float, help="redshift (default: from products/ via --targetid)")
 ap.add_argument("--templates", required=True, help="pPXF SPS .npz file (e.g. E-MILES)")
 ap.add_argument("--out", required=True)
 ap.add_argument("--target-sn", type=float, default=40.0)
@@ -33,8 +33,12 @@ center = None
 if args.targetid is not None:
     from bartw.lookup import lookup_target
     g = lookup_target(args.targetid); args.ra, args.dec = g["RA"], g["DEC"]
+    if args.z is None and "Z" in g:
+        args.z = g["Z"]; print(f"z = {args.z:.5f} from products/")
     if "A_BAR_ARCSEC" in g:
         args.half_size = max(args.half_size, 1.6 * g["A_BAR_ARCSEC"] + 10)
+if args.z is None:
+    raise SystemExit("--z is required (or --targetid with a redshift in products/)")
 if args.ra is not None and args.dec is not None:
     center = (args.ra, args.dec)
     print(f"reading a {2 * args.half_size:.0f}\" region around RA={args.ra:.5f} Dec={args.dec:.5f}")
