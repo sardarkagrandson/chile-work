@@ -220,3 +220,84 @@ def fit_halpha_bins(cube, bin_num, z, v_star=None, half_window=45.0, min_snr=3.0
 
     return dict(v=V, v_err=dV, sigma=S, flux=F, snr=SNR, ew_abs=EWabs,
                 v_map=to_map(V), v_err_map=to_map(dV), sigma_map=to_map(S), flux_map=to_map(F), snr_map=to_map(SNR))
+
+
+LINES = {"halpha": 6562.80, "oiii": 5006.84, "sii_a": 6716.44, "sii_b": 6730.82, "hbeta": 4861.33, "nii": 6583.45}
+
+
+def fit_line_bins(cube, bin_num, z, line="oiii", half_window=25.0, min_snr=3.0, v_grid_step=4.0, v_half_range=500.0,
+                  sig_em_grid=(1.3, 1.8, 2.5, 3.5), progress=True):
+    """Single emission line + linear continuum per Voronoi bin (grid search in
+    velocity, linear amplitudes). For lines with no stellar absorption
+    underneath ([OIII], [SII]) this is an absorption-free gas velocity. For
+    the [SII] doublet both lines are fitted with a tied velocity."""
+    from .kinematics import stack_bins
+    if line == "sii":
+        lines = [LINES["sii_a"], LINES["sii_b"]]
+    else:
+        lines = [LINES[line]]
+    lc0 = np.mean(lines) * (1 + z)
+    lam, spectra, variances = stack_bins(cube, bin_num, (lc0 - half_window - 10, lc0 + half_window + 10))
+    nb = spectra.shape[1]
+    v0 = C_KMS * z
+    vgrid = np.arange(v0 - v_half_range, v0 + v_half_range + v_grid_step, v_grid_step)
+    V = np.full(nb, np.nan); dV = V.copy(); F = V.copy(); SNR = V.copy()
+    x = lam - lc0
+    for b in range(nb):
+        y = spectra[:, b]
+        ok = np.isfinite(y)
+        if ok.sum() < 15:
+            continue
+        yy, xx, lam_ok = y[ok], x[ok], lam[ok]
+        var = variances[ok, b]
+        err = np.sqrt(var) if np.isfinite(var).all() and (var > 0).all() else np.full_like(yy, max(np.std(np.diff(yy)) / np.sqrt(2), 1e-6))
+        w = 1.0 / err
+        best = (np.inf, None)
+        for s_em in sig_em_grid:
+            g = np.zeros((vgrid.size, yy.size))
+            for k, l0 in enumerate(lines):
+                amp = 1.0 if k == 0 else 1.0        # free ratio handled by separate column below
+                g_k = _gauss(lam_ok[None, :], (l0 * (1 + vgrid / C_KMS))[:, None], s_em)
+                g = g + g_k if len(lines) == 1 else g
+            cols = [np.ones((vgrid.size, yy.size)), np.broadcast_to(xx[None, :], (vgrid.size, yy.size))]
+            if len(lines) == 1:
+                cols.append(g)
+            else:
+                for l0 in lines:
+                    cols.append(_gauss(lam_ok[None, :], (l0 * (1 + vgrid / C_KMS))[:, None], s_em))
+            A = np.stack(cols, axis=-1) * w[None, :, None]
+            yw = (yy * w)[None, :]
+            AtA = np.einsum("vpi,vpj->vij", A, A)
+            Aty = np.einsum("vpi,vp->vi", A, yw)
+            try:
+                coef = np.linalg.solve(AtA, Aty[..., None])[..., 0]
+            except np.linalg.LinAlgError:
+                continue
+            resid = yw - np.einsum("vpi,vi->vp", A, coef)
+            chi2 = np.sum(resid**2, axis=1)
+            k = int(np.argmin(chi2))
+            if chi2[k] < best[0]:
+                best = (chi2[k], (k, coef[k], chi2, s_em, AtA[k]))
+        if best[1] is None:
+            continue
+        k, coef, chi2, s_em, AtA_k = best[1]
+        dof = max(yy.size - 4, 1); chi2r = best[0] / dof
+        try:
+            cov = np.linalg.inv(AtA_k) * max(chi2r, 1.0); a_err = np.sqrt(max(cov[2, 2], 0))
+        except np.linalg.LinAlgError:
+            a_err = np.inf
+        a = coef[2:].sum()
+        if a <= 0 or coef[2] / a_err < min_snr:
+            continue
+        km, kp = max(k - 1, 0), min(k + 1, vgrid.size - 1)
+        den = chi2[km] - 2 * chi2[k] + chi2[kp]
+        vbest = vgrid[k] + (0.5 * v_grid_step * (chi2[km] - chi2[kp]) / den if den > 0 else 0.0)
+        verr = (np.sqrt(2.0 * v_grid_step**2 / den) if den > 0 else v_grid_step) * np.sqrt(max(chi2r, 1.0))
+        V[b], dV[b], F[b], SNR[b] = vbest, verr, a * s_em * np.sqrt(2 * np.pi), coef[2] / a_err
+        if progress and (b + 1) % 500 == 0:
+            print(f"[gas {line}] {b + 1}/{nb} bins")
+
+    def to_map(arr):
+        out = np.full(bin_num.shape, np.nan); okb = bin_num >= 0; out[okb] = arr[bin_num[okb]]; return out
+
+    return dict(v=V, v_err=dV, flux=F, snr=SNR, v_map=to_map(V), v_err_map=to_map(dV), flux_map=to_map(F), snr_map=to_map(SNR))
