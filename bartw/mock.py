@@ -106,8 +106,11 @@ def make_mock(p: MockParams):
     if p.vel_noise_kms > 0:
         vlos = vlos + p.vel_noise_kms * rng.standard_normal(vlos.shape)
 
-    # bar PA on the sky (for slit placement, as a real analysis would measure)
-    bar_pa_sky = p.pa_deg + np.degrees(np.arctan2(np.sin(phi) * np.cos(inc), np.cos(phi)))
+    # bar PA on the sky (for slit placement, as a real analysis would measure).
+    # In the (X, Y) frame used here Y points from the major axis towards the
+    # *west* side for PA = 0, so a positive disc-plane angle phi decreases the
+    # sky PA (PA is counted from north through east).
+    bar_pa_sky = (p.pa_deg - np.degrees(np.arctan2(np.sin(phi) * np.cos(inc), np.cos(phi)))) % 180.0
     a_bar_sky = p.a_bar_arcsec * np.sqrt(np.cos(phi) ** 2 + (np.sin(phi) * np.cos(inc)) ** 2)
     truth = dict(x0=x0, y0=y0, omega_p=p.omega_p, omega_sini_arcsec=omega_arcsec * np.sin(inc),
                  scale_kpc_arcsec=scale, bar_pa_sky=bar_pa_sky, a_bar_sky_arcsec=a_bar_sky,

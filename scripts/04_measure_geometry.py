@@ -16,7 +16,7 @@ import pandas as pd
 
 from bartw.config import data_dir, load_config
 from bartw.geometry import inclination_from_axis_ratio, kpc_per_arcsec, tw_suitable
-from bartw.photometry import bar_geometry, disc_geometry, fetch_cutout, isophote_profiles
+from bartw.photometry import cutout_size_for, fetch_cutout, measure_geometry
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--input", default=str(data_dir("products") / "sample_with_muse.csv"))
@@ -35,25 +35,24 @@ rows = []
 for i, r in df.iterrows():
     rec = dict(TARGETID=r["TARGETID"])
     try:
-        img, hdr = fetch_cutout(r["RA"], r["DEC"], g["cutout_layer"], g["cutout_pixscale_arcsec"], g["cutout_size_pix"])
-        prof = isophote_profiles(img)
+        r25 = float(r["sma_sb25"]) if np.isfinite(r.get("sma_sb25", np.nan)) and r.get("sma_sb25", 0) > 0 \
+            else float(r["d25_adopted_arcsec"]) / 2 if np.isfinite(r.get("d25_adopted_arcsec", np.nan)) else 15.0
         pix = g["cutout_pixscale_arcsec"]
-        # disc: outer third of the fitted range; bar: inner part
-        smax = np.nanmax(prof["sma"])
-        pa_d, pa_d_err, eps_d, eps_d_err = disc_geometry(prof, 0.6 * smax, 0.95 * smax)
-        bar = bar_geometry(prof, pa_d, eps_d)
-        rec.update(PA_DISC=pa_d, PA_DISC_ERR=pa_d_err, EPS_DISC=eps_d,
-                   INCL_DEG=float(inclination_from_axis_ratio(1 - eps_d, g["q0"])),
-                   PA_BAR=bar["pa_bar"], A_BAR_ARCSEC=bar["a_bar"] * pix if np.isfinite(bar["a_bar"]) else np.nan,
-                   A_BAR_ERR_ARCSEC=bar["a_bar_err"] * pix if np.isfinite(bar.get("a_bar_err", np.nan)) else np.nan,
-                   EPS_BAR=bar["eps_bar"])
+        img, hdr = fetch_cutout(r["RA"], r["DEC"], g["cutout_layer"], pix, cutout_size_for(r25, pix))
+        res = measure_geometry(img, pix, r25)
+        rec.update(R25_ARCSEC=r25, PA_DISC=res["pa_disc"], PA_DISC_ERR=res["pa_disc_err"], EPS_DISC=res["eps_disc"],
+                   INCL_DEG=float(inclination_from_axis_ratio(1 - res["eps_disc"], g["q0"])),
+                   PA_BAR=res["pa_bar"], A_BAR_ARCSEC=res["a_bar"], A_BAR_ERR_ARCSEC=res["a_bar_err"],
+                   EPS_BAR=res["eps_bar"], GEOM_STATUS=res["status"])
     except Exception as exc:
         print(f"  {r['TARGETID']}: failed ({exc})")
-        rec.update(PA_DISC=np.nan, PA_BAR=np.nan, INCL_DEG=np.nan, A_BAR_ARCSEC=np.nan)
+        rec.update(PA_DISC=np.nan, PA_DISC_ERR=np.nan, PA_BAR=np.nan, INCL_DEG=np.nan, A_BAR_ARCSEC=np.nan, GEOM_STATUS="failed")
     rows.append(rec)
 geo = pd.DataFrame(rows)
 ok, dpa, why = tw_suitable(geo["INCL_DEG"], geo["PA_BAR"], geo["PA_DISC"], g)
-geo["DPA_DEG"], geo["TW_SUITABLE"], geo["TW_REASON"] = dpa, ok, why
+geo["DPA_DEG"] = dpa
+geo["TW_SUITABLE"] = ok & (geo["PA_DISC_ERR"] <= 5.0)
+geo["TW_REASON"] = np.where(ok & (geo["PA_DISC_ERR"] > 5.0), "disc PA error > 5 deg", why)
 out = df.merge(geo, on="TARGETID")
 out["KPC_PER_ARCSEC"] = kpc_per_arcsec(z=out["Z"], H0=cfg["cosmology"]["H0"])
 out["A_BAR_KPC"] = out["A_BAR_ARCSEC"] * out["KPC_PER_ARCSEC"]
