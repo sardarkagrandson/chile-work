@@ -30,6 +30,23 @@ from astropy.wcs import WCS
 
 C_KMS = 299792.458
 
+# Observed-frame wavelengths (A) of the sky emission lines that leave residuals
+# in MUSE cubes ([OI] 5577, 6300, 6364; NaD; the OH bands). Residuals differ
+# between exposures of a mosaic and bias velocities if left in the fit.
+SKY_LINES = [5577.34, 5889.95, 5895.92, 6300.30, 6363.78,
+             6498.7, 6533.0, 6544.0, 6553.6, 6562.2, 6568.8, 6577.3, 6596.6, 6604.1, 6627.6, 6634.0, 6645.0,
+             6664.0, 6683.0, 6826.0, 6829.6, 6841.0, 6863.9, 6871.0, 6889.3, 6900.8, 6912.6, 6923.2, 6939.5, 6948.9,
+             6978.0, 7003.9]
+
+
+def sky_mask(lam, half_width=3.0, lines=SKY_LINES):
+    """Boolean array, True where ``lam`` is within half_width of a sky line."""
+    lam = np.asarray(lam, float)
+    m = np.zeros(lam.shape, bool)
+    for l0 in lines:
+        m |= np.abs(lam - l0) <= half_width
+    return m
+
 
 @dataclass
 class Cube:
@@ -171,14 +188,18 @@ def load_templates(templates, velscale, fwhm_gal=2.65, norm_range=(5070.0, 5950.
     return sps.templates.reshape(sps.templates.shape[0], -1), sps.lam_temp
 
 
-def fit_bins(cube, bin_num, z, templates, lam_range=(4750.0, 7000.0), fwhm_gal=2.65,
-             moments=2, degree=12, mask_lines=True, quiet=True, progress=True,
+def fit_bins(cube, bin_num, z, templates, lam_range=(4750.0, 5950.0), fwhm_gal=2.65,
+             moments=2, degree=12, mask_lines=True, mask_sky=True, quiet=True, progress=True,
              checkpoint=None, checkpoint_every=300):
     """pPXF fit of each Voronoi bin. Returns dict of per-bin arrays and maps.
 
     ``templates``: pPXF SPS .npz path, or (templates_2d, lam_temp).
     ``fwhm_gal``: instrumental LSF FWHM in Angstrom (MUSE ~2.65 A at 5000 A;
     only V matters for TW so this is not critical).
+    ``lam_range``: default 4750-5950 A (Hbeta, Mgb, Fe lines; the only sky
+    residuals are [OI]5577 and NaD, both masked). The red part of MUSE is
+    full of OH residuals that differ between mosaic exposures and bias V.
+    ``mask_sky``: drop +-3 A around the sky lines in ``SKY_LINES``.
     ``checkpoint``: (path, header) -> the maps are written there every
     ``checkpoint_every`` bins and at the end, so a crash loses little.
     """
@@ -202,6 +223,8 @@ def fit_bins(cube, bin_num, z, templates, lam_range=(4750.0, 7000.0), fwhm_gal=2
     temp, lam_temp = load_templates(templates, velscale, fwhm_gal)
     lam_range_temp = [lam_temp[0], lam_temp[-1]]
     good_lines = util.determine_goodpixels(ln_lam, lam_range_temp, z) if mask_lines else np.arange(ln_lam.size)
+    if mask_sky:
+        good_lines = np.intersect1d(good_lines, np.where(~sky_mask(lam_gal))[0])
     vel0 = C_KMS * np.log(1 + z)
     start = [vel0, 60.0]
 

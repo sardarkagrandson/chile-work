@@ -139,15 +139,20 @@ def fit_halpha_bins(cube, bin_num, z, v_star=None, half_window=45.0, min_snr=3.0
     """
     from .kinematics import stack_bins
     lc0 = HALPHA * (1 + z)
+    from .kinematics import sky_mask
     lam, spectra, variances = stack_bins(cube, bin_num, (lc0 - half_window, lc0 + half_window))
     nb = spectra.shape[1]
     v0 = C_KMS * z
     vgrid = np.arange(v0 - v_half_range, v0 + v_half_range + v_grid_step, v_grid_step)
     V = np.full(nb, np.nan); dV = V.copy(); S = V.copy(); F = V.copy(); SNR = V.copy(); EWabs = V.copy()
     x = lam - lc0
+    from .kinematics import SKY_LINES
+    gal_lines = [l0 * (1 + z) for l0 in (HALPHA, NII_A, NII_B)]
+    sky_use = [l for l in SKY_LINES if all(abs(l - gl) > 5.0 for gl in gal_lines)]
+    not_sky = ~sky_mask(lam, half_width=2.5, lines=sky_use)
     for b in range(nb):
         y = spectra[:, b]
-        ok = np.isfinite(y)
+        ok = np.isfinite(y) & not_sky
         if ok.sum() < 20:
             continue
         yy = y[ok]; xx = x[ok]; lam_ok = lam[ok]
@@ -237,15 +242,20 @@ def fit_line_bins(cube, bin_num, z, line="oiii", half_window=25.0, min_snr=3.0, 
     else:
         lines = [LINES[line]]
     lc0 = np.mean(lines) * (1 + z)
+    from .kinematics import sky_mask
     lam, spectra, variances = stack_bins(cube, bin_num, (lc0 - half_window - 10, lc0 + half_window + 10))
     nb = spectra.shape[1]
     v0 = C_KMS * z
     vgrid = np.arange(v0 - v_half_range, v0 + v_half_range + v_grid_step, v_grid_step)
     V = np.full(nb, np.nan); dV = V.copy(); F = V.copy(); SNR = V.copy()
     x = lam - lc0
+    from .kinematics import SKY_LINES
+    gal_lines = [l0 * (1 + z) for l0 in lines]
+    sky_use = [l for l in SKY_LINES if all(abs(l - gl) > 5.0 for gl in gal_lines)]
+    not_sky = ~sky_mask(lam, half_width=2.5, lines=sky_use)
     for b in range(nb):
         y = spectra[:, b]
-        ok = np.isfinite(y)
+        ok = np.isfinite(y) & not_sky
         if ok.sum() < 15:
             continue
         yy, xx, lam_ok = y[ok], x[ok], lam[ok]

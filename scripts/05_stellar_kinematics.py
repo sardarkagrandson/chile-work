@@ -2,7 +2,7 @@
 """Step 5: stellar kinematic maps from a MUSE cube (Voronoi + pPXF).
 
     python scripts/05_stellar_kinematics.py CUBE.fits --z 0.004 --templates data/raw/templates/spectra_emiles_9.0.npz \
-        --out data/products/kin_NAME.fits [--target-sn 40] [--snr-min 1] [--lam-range 4750 7000]
+        --out data/products/kin_NAME.fits [--target-sn 40] [--snr-min 1] [--lam-range 4750 5950]
 
 Takes ~1 s per Voronoi bin; a 1'x1' dwarf at S/N 40 gives a few hundred to a
 couple of thousand bins. Only the 4750-7000 A range is read to save memory.
@@ -23,7 +23,7 @@ ap.add_argument("--templates", required=True, help="pPXF SPS .npz file (e.g. E-M
 ap.add_argument("--out", required=True)
 ap.add_argument("--target-sn", type=float, default=40.0)
 ap.add_argument("--snr-min", type=float, default=1.0)
-ap.add_argument("--lam-range", type=float, nargs=2, default=(4750.0, 7000.0))
+ap.add_argument("--lam-range", type=float, nargs=2, default=(4750.0, 5950.0), help="blue range by default: the red is full of OH sky residuals")
 ap.add_argument("--degree", type=int, default=12)
 ap.add_argument("--targetid", type=int, help="look up the nucleus position in products/ and read only a region around it")
 ap.add_argument("--ra", type=float); ap.add_argument("--dec", type=float)
